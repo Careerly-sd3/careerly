@@ -1,0 +1,201 @@
+{% extends "template.html" %}
+{% block title %}Careerly | Tracker{% endblock %}
+
+{# ---------- Small reusable pieces ---------- #}
+
+{% macro date_text(value) %}{{ value.strftime('%b %d, %Y') }}{% endmacro %}
+
+{% macro status_badge(status) -%}
+<span class="badge badge-subtle theme-{{ status_themes[status] }}">{{ status }}</span>
+{%- endmacro %}
+
+{% macro row_actions(company) -%}
+<div class="d-flex gap-1">
+    <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Edit {{ company }} application">
+        <i class="bi bi-pencil" aria-hidden="true"></i>
+    </button>
+    <button type="button" class="btn btn-subtle btn-icon btn-sm theme-danger" aria-label="Delete {{ company }} application">
+        <i class="bi bi-trash3-fill" aria-hidden="true"></i>
+    </button>
+</div>
+{%- endmacro %}
+
+{% macro interview_card(interview) -%}
+<article class="card" data-bs-theme="light">
+    <div class="card-body">
+        <h3 class="fs-lg fw-bold mb-0">{{ interview.company }}</h3>
+        <p class="fg-3 mb-0">{{ interview.job_title }}</p>
+        <hr>
+        <dl class="d-flex flex-wrap gap-6 mb-0">
+            <div>
+                <dt class="fs-xs fg-3 fw-medium text-uppercase">Date</dt>
+                <dd class="fw-medium mb-0">{{ date_text(interview.scheduled_at) }}</dd>
+            </div>
+            <div>
+                <dt class="fs-xs fg-3 fw-medium text-uppercase">Time</dt>
+                <dd class="fw-medium mb-0">{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</dd>
+            </div>
+            <div>
+                <dt class="fs-xs fg-3 fw-medium text-uppercase">Location</dt>
+                <dd class="fw-medium mb-0">{{ interview.location }}</dd>
+            </div>
+        </dl>
+    </div>
+</article>
+{%- endmacro %}
+
+{% macro empty_state(icon, message, classes='') -%}
+<div class="card {{ classes }}" data-bs-theme="light">
+    <div class="card-body align-items-center text-center">
+        <i class="bi {{ icon }} fs-3xl" aria-hidden="true"></i>
+        <p class="mb-0">{{ message }}</p>
+    </div>
+</div>
+{%- endmacro %}
+
+{# ---------- Page ---------- #}
+
+{% block main %}
+<style>
+    /* Always-visible scrollbar so users can see an area scrolls (macOS hides it by default). */
+    .visible-scroll::-webkit-scrollbar { width: 0.75rem; }
+    .visible-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
+    .visible-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border: 3px solid #f3f4f6; border-radius: 999px; }
+    @supports not selector(::-webkit-scrollbar) {
+        .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
+    }
+</style>
+
+<section class="d-flex flex-column gap-6">
+
+    {# Title, status counts and the Add button #}
+    <div class="grid align-items-center">
+        <h1 class="g-col-12 md:g-col-3 fs-2xl fw-bold mb-0">Job Applications</h1>
+
+        <ul class="g-col-12 md:g-col-6 grid gap-2 list-unstyled mb-0" data-bs-theme="light">
+            {% for status, count in status_counts.items() %}
+            <li class="g-col-3 theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
+                <div class="fw-semibold">{{ count }}</div>
+                <div class="fs-sm">{{ status }}</div>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <div class="g-col-12 md:g-col-3">
+            <button type="button" class="btn btn-solid btn-lg theme-success w-100">+ Add Application</button>
+        </div>
+    </div>
+
+    {# Applications table: about 5 rows tall, then it scrolls #}
+    {% if applications %}
+    <div class="table-card mb-0" data-bs-theme="light">
+        <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem">
+            <table class="table table-hover md:table-stacked">
+                <thead class="sticky-top">
+                    <tr>
+                        <th scope="col">Company</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Applied</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Next Step</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application in applications %}
+                    <tr>
+                        <td>{{ application.company }}</td>
+                        <td data-cell="Role">{{ application.job_title }}</td>
+                        <td data-cell="Applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
+                        <td data-cell="Status">{{ status_badge(application.status) }}</td>
+                        <td data-cell="Next Step">
+                            {{ application.next_step }}
+                            {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
+                        </td>
+                        <td data-cell="Actions">{{ row_actions(application.company) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet.") }}
+    {% endif %}
+
+    {# Upcoming interviews (left) next to the practice card (right) #}
+    <h2 class="fs-xl fw-bold mb-0">Upcoming interviews</h2>
+    <div class="grid">
+
+        {# The first interview cards #}
+        {% if interviews %}
+        <div class="g-col-12 md:g-col-6 d-flex flex-column gap-4">
+            {% for interview in interviews[:visible_interviews] %}
+            {{ interview_card(interview) }}
+            {% endfor %}
+        </div>
+        {% else %}
+        {{ empty_state('bi-person-video3', 'No interviews scheduled yet.', 'g-col-12 md:g-col-6') }}
+        {% endif %}
+
+        {# Practice card: as tall as the cards beside it. The question list slides open inside it. #}
+        {% if practice_questions %}
+        <article id="practice" class="card g-col-12 md:g-col-6 order-1 md:order-0" style="min-height: 18rem"
+            data-bs-theme="light" data-questions="{{ practice_questions|tojson|forceescape }}">
+            <div class="card-body overflow-hidden">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="bg-success fg-white rounded-3 p-2 fs-xl">
+                        <i class="bi bi-chat-square-text" aria-hidden="true"></i>
+                    </span>
+                    <div>
+                        <h3 class="fs-md fw-bold mb-0">Interview practice</h3>
+                        <p id="practice-meta" class="collapse show fs-xs fg-3 mb-0">{{ practice_meta }}</p>
+                    </div>
+                </div>
+                <div class="visible-scroll overflow-y-auto" style="flex: 1 1 0">
+                    <p id="practice-current" class="collapse show fs-xl mb-0" data-current-question>{{ practice_questions[0] }}</p>
+                    <ol id="practice-all" class="collapse list-group list-group-flush" data-toggle-state>
+                        {% for question in practice_questions %}
+                        <li class="list-group-item px-0 fs-lg">{{ question }}</li>
+                        {% endfor %}
+                    </ol>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <button type="button" class="btn btn-link btn-sm" data-bs-toggle="collapse"
+                        data-bs-target="#practice-meta, #practice-current, #practice-all" aria-expanded="false"
+                        aria-controls="practice-all" data-label-closed="View more questions"
+                        data-label-open="Hide questions">
+                        <span data-label>View more questions</span> <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                    </button>
+                    <button type="button" class="btn btn-outline" data-next {% if practice_questions|length < 2 %}disabled{% endif %}>
+                        Next <i class="bi bi-arrow-right" aria-hidden="true"></i>
+                    </button>
+                </div>
+            </div>
+        </article>
+        {% else %}
+        {{ empty_state('bi-chat-square-text', 'No practice questions yet.', 'g-col-12 md:g-col-6') }}
+        {% endif %}
+
+        {# The rest of the interview cards, hidden until "Show more" is pressed #}
+        {% if interviews|length > visible_interviews %}
+        <div class="g-col-12 md:g-col-6 d-flex flex-column gap-4">
+            <div id="more-interviews" class="collapse" data-toggle-state>
+                <div class="d-flex flex-column gap-4">
+                    {% for interview in interviews[visible_interviews:] %}
+                    {{ interview_card(interview) }}
+                    {% endfor %}
+                </div>
+            </div>
+            <button type="button" class="btn btn-outline theme-inverse w-100" data-bs-toggle="collapse"
+                data-bs-target="#more-interviews" aria-expanded="false" aria-controls="more-interviews"
+                data-label-closed="Show more" data-label-open="Show less">
+                <span data-label>Show more</span> <i class="bi bi-chevron-down" aria-hidden="true"></i>
+            </button>
+        </div>
+        {% endif %}
+    </div>
+</section>
+
+<script src="{{ url_for('static', filename='js/tracker.js') }}"></script>
+{% endblock %}

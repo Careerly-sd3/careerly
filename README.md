@@ -29,3 +29,7 @@ Careerly is a small Flask web app for a career-focused landing page / dashboard.
 - `app.py` — Flask application
 - `templates/` — HTML pages
 - `static/` — CSS and frontend assets
+
+## Database design
+
+See the proposed [database design](docs/database/database-design.md) for CAR-2.

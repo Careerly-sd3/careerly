@@ -1,2 +1,94 @@
 {% extends "template.html" %}
 {% block title %}Careerly{% endblock %}
+
+{% block main %}
+<section class="d-grid grid-cols-2 py-12 w-100 align-items-center gap-12">
+    <div class="d-grid gap-8" id="landing-copy">
+        <div class="d-flex align-items-center gap-4 py-3 px-5 border rounded-50 bg-muted-inverse bg-10">
+            <span class="eyebrow-dot"></span>
+            <span class="ls-1 fg-turquoise fs-xs fw-bold">YOUR NEXT MOVE STARTS HERE</span>
+        </div>
+        <h1 class="fs-6xl fw-bold ls-n25">Make your job search work for you.</h1>
+        <p class="fg-1 fs-2md lh-18 mb-3">
+            Discover opportunities, organise your applications and
+            stay on top of every interview and deadline.
+            Everything you need for your job search, all in one place.
+        </p>
+        <div class="d-flex gap-5">
+            <a href="#"
+                class="btn-solid theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold landing-button hover-lift anim">
+                Get started
+                <i class="bi bi-arrow-up-right"></i>
+            </a>
+            <a href="#"
+                class="btn-outline theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold landing-button hover-lift anim">
+                Log in
+                <i class="bi bi-arrow-right"></i>
+            </a>
+        </div>
+        <div class="d-flex gap-3 fs-sm fg-1">
+            <i class="bi bi-check-circle fg-turquoise"></i>
+            A simpler way to manage your career journey
+        </div>
+    </div>
+    <div class="position-relative p-6">
+        <div class="dashboard-preview">
+            <div class="preview-topbar d-flex justify-content-between px-6 align-items-center border-bottom">
+                <i class="fw-semibold">Careerly</i>
+                <i class="bi bi-three-dots fg-3 fs-3xl"></i>
+            </div>
+            <div class="p-7">
+                <span class="fg-1 fs-3xs fw-bold ls-1 mb-1">YOUR WORKSPACE</span>
+                <h4 class="fw-bold mb-7">Application overview</h4>
+
+                {% set preview_stats = [
+                ('08', 'Applications', 'bi-briefcase'),
+                ('03', 'Interviews', 'bi-calendar-event'),
+                ('02', 'Offers', 'bi-trophy')
+                ] %}
+
+                <div class="d-grid grid-cols-3 mb-8 gap-4">
+                    {% for count, label, icon in preview_stats %}
+                    <div class="d-grid p-5 gap-2 rounded-7 border bg-muted-inverse bg-10">
+                        <i class="bi {{ icon }} mb-2 fs-2md fg-turquoise"></i>
+                        <strong class="fs-xl lh-1">{{ count }}</strong>
+                        <span class="fs-xs fg-1">{{ label }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div class="d-flex align-items-center justify-content-between mb-4">
+                    <strong class="small">Recent applications</strong>
+                    <span class="fs-xs fg-turquoise">View all <i class="bi bi-arrow-right"></i></span>
+                </div>
+
+                {% set preview_applications = [
+                ('bi-code-slash', 'Software Engineer', 'Northstar Technologies', 'Interview', 'bg-muted-accent'),
+                ('bi-palette', 'Product Designer', 'Forma Studio', 'Applied', 'bg-muted-primary'),
+                ('bi-bar-chart', 'Data Analyst', 'Orbit Labs', 'In review', 'bg-muted-warning')
+                ] %}
+
+                <div class="d-grid">
+                    {% for icon, role, company, status, bg in preview_applications %}
+                    <div class="d-flex gap-4 align-items-center border-top py-4">
+                        <i class="bi {{ icon }} d-flex p-3 border rounded-6 fg-turquoise bg-muted-inverse bg-10"></i>
+                        <div class="d-grid flex-grow-1 gap-1">
+                            <strong class="fs-xs fw-semibold">{{ role }}</strong>
+                            <span class="fg-1 fs-2xs">{{ company }}</span>
+                        </div>
+                        <span class="fw-semibold fs-3xs rounded-4 px-3 py-1 {{ bg }}">{{ status }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="floating-card">
+            <i class="bi bi-check2-circle d-flex p-3 rounded-6 fs-lg bg-success bg-30 fg-turquoise"></i>
+            <div class="d-grid gap-1">
+                <strong class="small">Stay organised</strong>
+                <span class="fs-2xs fg-1">Keep every next step in sight</span>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %}

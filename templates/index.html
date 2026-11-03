@@ -2,7 +2,7 @@
 {% block title %}Careerly{% endblock %}
 
 {% block main %}
-<section class="d-grid grid-cols-2 py-12 w-100 align-items-center gap-12">
+<section class="d-grid grid-cols-2 w-100 align-items-center gap-12">
     <div class="d-grid gap-8">
         <div class="d-flex align-items-center gap-4 py-3 px-5 border rounded-50 bg-muted-inverse bg-10">
             <span class="eyebrow-dot"></span>
@@ -15,13 +15,11 @@
             Everything you need for your job search, all in one place.
         </p>
         <div class="d-flex gap-5">
-            <a href="#"
-                class="btn-solid theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold landing-button hover-lift anim">
+            <a href="#" class="btn-solid theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold hover-lift anim">
                 Get started
                 <i class="bi bi-arrow-up-right"></i>
             </a>
-            <a href="#"
-                class="btn-outline theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold landing-button hover-lift anim">
+            <a href="#" class="btn-outline theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold hover-lift anim">
                 Log in
                 <i class="bi bi-arrow-right"></i>
             </a>
@@ -33,7 +31,7 @@
     </div>
     <div class="position-relative p-6">
         <div class="dashboard-preview">
-            <div class="preview-topbar d-flex justify-content-between px-6 align-items-center border-bottom">
+            <div class="d-flex justify-content-between px-6 align-items-center border-bottom">
                 <i class="fw-semibold">Careerly</i>
                 <i class="bi bi-three-dots fg-3 fs-3xl"></i>
             </div>
@@ -92,9 +90,9 @@
     </div>
 </section>
 
-<section class="landing-features landing-section-heading d-grid text-center">
+<section class="landing-features">
     <span class="ls-1 fg-turquoise fs-xs fw-bold">WHAT YOU CAN DO</span>
-    <span class="my-5 fs-4xl fw-bold ls-n1">Your job search. One organised place.</span>
+    <strong class="my-5 fs-4xl ls-n1">Your job search. One organised place.</strong>
     <span class="fg-1 mb-12">Spend less time keeping track of things and more time moving your career forward.</span>
 
     {% set feature_cards = [
@@ -121,5 +119,24 @@
         </article>
         {% endfor %}
     </div>
+</section>
+
+<section class="landing-cta">
+    <div class="d-grid w-75 gap-5">
+        <span class="ls-1 fg-turquoise fs-xs fw-bold">TAKE THE NEXT STEP</span>
+        <strong class="fs-4xl ls-n1">Ready to organise your job search?</strong>
+        <span class="fg-1 mb-4">Bring your opportunities, applications and interviews together with Careerly.</span>
+
+        <a href="#" class="btn-solid theme-inverse w-fit py-5 px-7 gap-4 rounded-7 fw-bold">
+            Create your account
+            <i class="bi bi-arrow-up-right"></i>
+        </a>
+
+    </div>
+
+    <div class="cta-decoration">
+        <i class="bi bi-rocket-takeoff"></i>
+    </div>
+
 </section>
 {% endblock %}

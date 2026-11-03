@@ -36,10 +36,11 @@ COMPANY_NAMES = {
 }
 
 
-def _application(application_id, company_id, job_title, status, applied_at=None, closing_date=None):
-    """One JobApplication row (only the columns the page uses)."""
+def _application(application_id, company_id, job_title, status, applied_at=None, closing_date=None, user_id=1):
+    """One JobApplication row (only the columns the page uses). Sample user 1 is the demo account."""
     return {
         "application_id": application_id,
+        "user_id": user_id,
         "company_id": company_id,
         "job_title": job_title,
         "status": status,
@@ -71,9 +72,8 @@ INTERVIEWS = (
      "scheduled_at": datetime(2026, 11, 19, 11, 0), "venue_or_link": "Online (Zoom)"},
 )
 
-# Planned to come from AIAnalysis (interview_prep) later.
-PRACTICE_META = "Software Engineering Intern · Qualcomm · Thursday"
-
+# Generic practice questions, the same for everyone. Personalised ones are planned
+# to come from AIAnalysis (interview_prep) later.
 PRACTICE_QUESTIONS = (
     "Tell me about a project you built and a technical decision you would change.",
     "How do you debug a problem when you don't know where to start?",
@@ -110,10 +110,15 @@ def _next_step(application):
     return ("Closed", None)
 
 
-def build_application_rows():
+def _applications_of(user_id):
+    """Only this user's applications: the one place that keeps users' data apart."""
+    return [application for application in JOB_APPLICATIONS if application["user_id"] == user_id]
+
+
+def build_application_rows(user_id):
     """Rows for the applications table."""
     rows = []
-    for application in JOB_APPLICATIONS:
+    for application in _applications_of(user_id):
         next_step, next_date = _next_step(application)
         rows.append({
             "company": COMPANY_NAMES[application["company_id"]],
@@ -126,10 +131,12 @@ def build_application_rows():
     return rows
 
 
-def build_interview_cards():
-    """Interview cards, soonest first."""
+def build_interview_cards(user_id):
+    """Interview cards for this user's applications, soonest first."""
+    own_application_ids = {application["application_id"] for application in _applications_of(user_id)}
+    own_interviews = [interview for interview in INTERVIEWS if interview["application_id"] in own_application_ids]
     cards = []
-    for interview in sorted(INTERVIEWS, key=lambda item: item["scheduled_at"]):
+    for interview in sorted(own_interviews, key=lambda item: item["scheduled_at"]):
         application = _APPLICATIONS_BY_ID[interview["application_id"]]
         cards.append({
             "company": COMPANY_NAMES[application["company_id"]],
@@ -140,7 +147,16 @@ def build_interview_cards():
     return cards
 
 
-def build_status_counts():
-    """Number of applications per status, for the count tiles."""
-    counts = Counter(application["status"] for application in JOB_APPLICATIONS)
+def build_practice_meta(user_id):
+    """Subtitle for the practice card, from this user's soonest interview ('' if they have none)."""
+    cards = build_interview_cards(user_id)
+    if not cards:
+        return ""
+    soonest = cards[0]
+    return f"{soonest['job_title']} · {soonest['company']} · {soonest['scheduled_at'].strftime('%A')}"
+
+
+def build_status_counts(user_id):
+    """Number of this user's applications per status, for the count tiles."""
+    counts = Counter(application["status"] for application in _applications_of(user_id))
     return {status: counts[status] for status in SUMMARY_STATUSES}

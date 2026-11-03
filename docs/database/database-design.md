@@ -144,7 +144,7 @@ The supplied PNG is copied unchanged; it remains the source diagram, including a
 
 ### Comparison with existing code
 
-- app.py creates the Flask app, registers the database connection layer and serves index.html at `/` and the tracker at `/tracker`. The tracker still uses sample data from tracker_data.py; tracker persistence, authentication and AI features are not implemented.
+- app.py creates the Flask app, registers the database connection layer and serves index.html at `/` and the tracker at `/tracker`. The tracker retains main's session-based access guard and per-user sample data from tracker_data.py. Registration stores users in memory and the login page is a placeholder; tracker persistence and AI features are not implemented.
 - templates/index.html extends template.html. The base template displays Tracker, Browse and Interviews navigation and Login/Register labels, but supplies no database-backed forms or entity attribute names. The hard-coded profile name in a disabled template branch does not establish a User schema field.
 - db.py provides a lazy, Flask-context-scoped `mysql-connector-python` connection layer with CA certificate and hostname verification. It rolls back uncommitted work and closes connections at teardown without automatically committing. requirements.txt includes the MySQL driver and python-dotenv; no ORM or model layer is implemented. tracker_data.py supplies partial in-memory Company, JobApplication and Interview samples, not persistent models. The connection layer does not yet provide tracker persistence.
 

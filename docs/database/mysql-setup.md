@@ -122,6 +122,7 @@ Enter values privately in the editor, not in shell history or chat:
 
 | Variable | Value to supply |
 | --- | --- |
+| `SECRET_KEY` | Private, stable random Flask session-signing key for session-based pages; do not leave blank or use a shared example value. |
 | `MYSQL_HOST` | Aiven service DNS hostname matching its certificate; no URL scheme. |
 | `MYSQL_PORT` | Actual Aiven service port (do not assume 3306). |
 | `MYSQL_DATABASE` | `careerly` |
@@ -131,7 +132,7 @@ Enter values privately in the editor, not in shell history or chat:
 
 Use the CA from the intended Aiven service, not a self-created placeholder. The helper checks that the file exists and parses as a CA bundle; the connector verifies the server chain and DNS hostname when connecting. It sets `ssl_verify_cert=True`, `ssl_verify_identity=True`, TLS 1.2/1.3, `ssl_disabled=False`, and `autocommit=False`. A missing cipher or mismatched selected database causes rejection and cleanup. There is no retry with TLS disabled. See [MySQL Connector/Python connection options](https://dev.mysql.com/doc/connector-python/en/connector-python-connectargs.html).
 
-`python-dotenv` lets **Flask CLI** load the repository-root `.env` when these commands are run from the repository root. Existing process environment variables take precedence; remove stale values privately if needed. Do not set `FLASK_SKIP_DOTENV` when relying on `.env`. Plain Python imports and production WSGI servers do not load `.env` through this helper: supply the six process environment variables through the deployment configuration instead. Ordinary mocked tests never create or read `.env`. The opt-in CAR-158 runner loads it only after `--run-hosted`.
+`python-dotenv` loads `.env` through Flask CLI and through main's existing application startup call to `load_dotenv()`. Run local commands from the repository root. Existing process environment variables take precedence; remove stale values privately if needed. Production deployments should supply the six MySQL variables and a private `SECRET_KEY` through deployment configuration. `db.py` itself never loads environment files. Mocked tests disable dotenv loading and never read private `.env` files. The standalone CAR-158 runner loads `.env` only after `--run-hosted`; it does not import the web application.
 
 After checking the account policy below, run this real, read-only hosted connection test locally:
 
@@ -149,7 +150,7 @@ To start the existing application:
 .\.venv\Scripts\python.exe -m flask --app app run --debug
 ```
 
-Importing the application, starting it or viewing the current `/` and `/tracker` routes does not open a database connection. Future persistence code calls `db.get_db()` inside a Flask context, closes its cursors, and explicitly commits only a completed unit of work. Connections are reused within an application/request context, with rollback and close at context teardown (including errors); teardown never commits. No tracker persistence or sample import is included.
+Importing or starting the application does not open a database connection. `/tracker` retains main's session-based login requirement and per-user sample-data filtering; these routes do not open database connections. Future persistence code calls `db.get_db()` inside a Flask context, closes its cursors, and explicitly commits only a completed unit of work. Connections are reused within an application/request context, with rollback and close at context teardown (including errors); teardown never commits. No tracker persistence or sample import is included. Main's registration service still stores users in memory, and the login page remains a placeholder; the connection merge does not move registration into MySQL.
 
 ### Verify account REQUIRE SSL separately
 

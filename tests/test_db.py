@@ -166,11 +166,17 @@ class DatabaseTests(unittest.TestCase):
         self.connect.assert_not_called()
 
     def test_application_import_and_existing_routes_do_not_connect(self):
-        # Plain Python import does not invoke Flask CLI's dotenv loading.
-        module = importlib.import_module("app")
+        # Main loads dotenv on import; never read private files in mocked tests.
+        with patch("dotenv.load_dotenv", return_value=False):
+            module = importlib.import_module("app")
         with patch.dict(os.environ, {}, clear=True):
             client = module.app.test_client()
             self.assertEqual(client.get("/").status_code, 200)
+            response = client.get("/tracker")
+            self.assertEqual(response.status_code, 302)
+            self.assertTrue(response.location.endswith("/login"))
+            with client.session_transaction() as session:
+                session["user_id"] = 1
             self.assertEqual(client.get("/tracker").status_code, 200)
         self.connect.assert_not_called()
 

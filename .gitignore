@@ -217,3 +217,23 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 .DS_Store
+
+# Local credentials, TLS material and database backups
+.env.*
+!.env.example
+.flaskenv
+.flaskenv.*
+*.key
+*.pem
+*.p12
+*.pfx
+backups/
+*.dump
+*.backup
+*.sql.gz
+*.sql.bz2
+*.sql.xz
+*.sql.zip
+# Ignore SQL dumps while retaining versioned schema migrations.
+*.sql
+!database/migrations/*.sql

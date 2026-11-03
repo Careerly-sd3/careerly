@@ -1,5 +1,7 @@
 from flask import Flask, render_template
 
+from db import init_app
+
 from tracker_data import (
     PRACTICE_META,
     PRACTICE_QUESTIONS,
@@ -11,6 +13,7 @@ from tracker_data import (
 )
 
 app = Flask(__name__)
+init_app(app)
 
 @app.route("/")
 def index():

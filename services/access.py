@@ -2,16 +2,13 @@
 
 from functools import wraps
 
-from flask import current_app, redirect, session, url_for
+from flask import current_app, redirect, url_for
+from flask_login import current_user
 
-# The login feature must store the signed-in user's id in the session under this key:
-#     session[SESSION_USER_KEY] = user.user_id
-SESSION_USER_KEY = "user_id"
-
-
+# Login feature sync: changed user_id to use flask_login instead
 def current_user_id():
     """The logged-in user's id, or None when nobody is logged in."""
-    return session.get(SESSION_USER_KEY)
+    return getattr(current_user, "id", None)
 
 
 def _login_endpoint():

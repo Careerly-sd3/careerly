@@ -27,7 +27,7 @@
 
             <div id="nav-links" class="btn-group">
                 {% for endpoint, label, icon in nav_items %}
-                <a class="{{ 'btn-solid' if request.endpoint == endpoint else 'btn-outline' }} theme-inverse anim">
+                <a class="{{ 'btn-solid' if request.endpoint == endpoint else 'btn-outline' }} theme-inverse" href="{{ url_for(endpoint) }}">
                     <i class="bi {{ icon }}" aria-hidden="true"></i>
                     <span class="nav-option-text anim">&nbsp;{{ label }}</span>
                 </a>
@@ -52,14 +52,22 @@
             </div>
             {% else %}
             <ul class="nav nav-underline">
-                <a class="nav-link fg-white bg-transparent anim">Login</a>
-                <a class="nav-link fg-white bg-transparent anim">Register</a>
+                <a class="nav-link fg-white bg-transparent" href="{{ url_for('login') }}">Login</a>
+                <a class="nav-link fg-white bg-transparent" href="{{ url_for('register') }}">Register</a>
             </ul>
             {% endif %}
         </nav>
     </header>
 
-    <main class="d-flex flex-column flex-grow-1">{% block main %}{% endblock %}</main>
+    <main class="d-flex flex-column flex-grow-1">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}" role="status">{{ message }}</div>
+        {% endfor %}
+        {% endwith %}
+
+        {% block main %}{% endblock %}
+    </main>
 
     <footer class="d-flex flex-column gap-12 mb-5 text-center">
         <hr class="border-white" />

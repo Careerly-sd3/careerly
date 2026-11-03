@@ -1,0 +1,32 @@
+{% extends "template.html" %}
+{% block title %}Register | Careerly{% endblock %}
+
+{% block main %}
+{% macro field(id, label, type, autocomplete, value="", extra="") %}
+<div class="auth-field">
+    <label for="{{ id }}">{{ label }}</label>
+    <input id="{{ id }}" name="{{ id }}" type="{{ type }}" autocomplete="{{ autocomplete }}" value="{{ value }}"
+        required {{ extra | safe }}
+        {% if errors.get(id) %}aria-invalid="true" aria-describedby="{{ id }}-error"{% endif %}>
+    {% if errors.get(id) %}
+    <p id="{{ id }}-error" class="auth-error">{{ errors[id] }}</p>
+    {% endif %}
+</div>
+{% endmacro %}
+
+<section class="auth-card m-auto">
+    <h1 class="fs-lg">Create your account</h1>
+    <p class="auth-intro">Keep every internship and graduate job application in one place.</p>
+
+    <form method="post" action="{{ url_for('register') }}" class="d-flex flex-column gap-5">
+        {{ field("name", "Name", "text", "name", form.get("name", ""), 'maxlength="100"') }}
+        {{ field("email", "Email", "email", "email", form.get("email", ""), 'maxlength="254"') }}
+        {{ field("password", "Password", "password", "new-password", "", 'minlength="8"') }}
+        {{ field("confirm_password", "Confirm password", "password", "new-password") }}
+
+        <button type="submit" class="btn-solid theme-inverse">Create account</button>
+    </form>
+
+    <p class="auth-switch">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+</section>
+{% endblock %}

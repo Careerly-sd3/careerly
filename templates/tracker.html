@@ -149,7 +149,9 @@
                     </span>
                     <div>
                         <h3 class="fs-md fw-bold mb-0">Interview practice</h3>
+                        {% if practice_meta %}
                         <p id="practice-meta" class="collapse show fs-xs fg-3 mb-0">{{ practice_meta }}</p>
+                        {% endif %}
                     </div>
                 </div>
                 <div class="visible-scroll overflow-y-auto" style="flex: 1 1 0">

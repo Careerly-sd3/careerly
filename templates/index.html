@@ -3,7 +3,7 @@
 
 {% block main %}
 <section class="d-grid grid-cols-2 py-12 w-100 align-items-center gap-12">
-    <div class="d-grid gap-8" id="landing-copy">
+    <div class="d-grid gap-8">
         <div class="d-flex align-items-center gap-4 py-3 px-5 border rounded-50 bg-muted-inverse bg-10">
             <span class="eyebrow-dot"></span>
             <span class="ls-1 fg-turquoise fs-xs fw-bold">YOUR NEXT MOVE STARTS HERE</span>
@@ -89,6 +89,37 @@
                 <span class="fs-2xs fg-1">Keep every next step in sight</span>
             </div>
         </div>
+    </div>
+</section>
+
+<section class="landing-features landing-section-heading d-grid text-center">
+    <span class="ls-1 fg-turquoise fs-xs fw-bold">WHAT YOU CAN DO</span>
+    <span class="my-5 fs-4xl fw-bold ls-n1">Your job search. One organised place.</span>
+    <span class="fg-1 mb-12">Spend less time keeping track of things and more time moving your career forward.</span>
+
+    {% set feature_cards = [
+    ('bi-card-checklist', 'Track applications', 'Keep all your applications organised. Follow their progress, update
+    statuses and never lose track of an opportunity.', 'Stay in control'),
+    ('bi-binoculars', 'Discover opportunities', 'Explore job opportunities and use search and filters to find positions
+    that match what you are looking for.', 'Find your next role'),
+    ('bi-calendar2-check', 'Manage interviews', 'Keep interview dates, important deadlines and follow-ups organised so
+    you are always ready for your next step.', 'Stay prepared')
+    ] %}
+
+    <div class="d-grid grid-cols-3 gap-7">
+        {% for icon, title, description, link in feature_cards %}
+        <article class="feature-card">
+            <div class="feature-icon">
+                <i class="bi {{ icon }} fg-turquoise"></i>
+            </div>
+            <h4 class="mb-4 fw-bold">{{ title }}</h4>
+            <small class="mb-7 fg-2 lh-18">{{ description }}</small>
+            <a href="#" class="d-flex align-items-center gap-3 fg-turquoise small fw-semibold">
+                {{ link }}
+                <i class="bi bi-arrow-right"></i>
+            </a>
+        </article>
+        {% endfor %}
     </div>
 </section>
 {% endblock %}

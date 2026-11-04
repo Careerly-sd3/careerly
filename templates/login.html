@@ -1,11 +1,36 @@
 {% extends "template.html" %}
 {% block title %}Log in | Careerly{% endblock %}
 
-{# TEMPORARY placeholder. Replace with the real login page from CAR-31 to CAR-36. #}
 {% block main %}
+{% macro field(id, label, type, autocomplete, value="", extra="") %}
+<div class="auth-field">
+    <label for="{{ id }}">{{ label }}</label>
+    <input id="{{ id }}" name="{{ id }}" type="{{ type }}" autocomplete="{{ autocomplete }}" value="{{ value }}"
+        required {{ extra | safe }}
+        {% if errors.get(id) %}aria-invalid="true" aria-describedby="{{ id }}-error"{% endif %}>
+    {% if errors.get(id) %}
+    <p id="{{ id }}-error" class="auth-error">{{ errors[id] }}</p>
+    {% endif %}
+</div>
+{% endmacro %}
+
 <section class="auth-card m-auto">
     <h1 class="fs-lg">Log in</h1>
-    <p class="auth-intro">The login form is coming in CAR-30.</p>
+    <p class="auth-intro">Pick up where you left off.</p>
+
+    {# CAR-35: one general message for a wrong email or a wrong password #}
+    {% if login_error %}
+    <div class="flash flash-error" role="alert">{{ login_error }}</div>
+    {% endif %}
+
+    {# No action attribute: the form posts to the current address, so the ?next= part is kept #}
+    <form method="post" class="d-flex flex-column gap-5">
+        {{ field("email", "Email", "email", "email", form.get("email", "")) }}
+        {{ field("password", "Password", "password", "current-password") }}
+
+        <button type="submit" class="btn-solid theme-inverse">Log in</button>
+    </form>
+
     <p class="auth-switch">No account yet? <a href="{{ url_for('register') }}">Register</a></p>
 </section>
 {% endblock %}

@@ -28,8 +28,7 @@ load_dotenv()
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = os.environ.get(
-    "SECRET_KEY", "q64f870c6c14cfcb38c9dad5b0e3bf90d1f5acae96f672eae585952af68c98fdc"
-)
+    "SECRET_KEY")
 
 # login
 login_manager = LoginManager(app)

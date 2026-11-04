@@ -6,13 +6,13 @@ from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user
 
-from services.access import current_user_id
 from services.auth_service import (
     authenticate,
     create_user,
     get_user_by_id,
     validate_login,
     validate_registration,
+    current_user_id
 )
 from tracker_data import (
     PRACTICE_QUESTIONS,
@@ -30,14 +30,12 @@ load_dotenv()
 app = Flask(__name__)
 init_app(app)
 
-app.config["SECRET_KEY"] = os.environ.get(
-    "SECRET_KEY")
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
 
-# login
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to continue."
-login_manager.login_message_category = "error"
+login_manager.login_message_category = "danger"
 
 
 @login_manager.user_loader
@@ -85,6 +83,9 @@ def tracker():
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("tracker"))
+
     if request.method == "POST":
         errors = validate_registration(request.form)
         if errors:

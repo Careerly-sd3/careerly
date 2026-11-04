@@ -18,11 +18,12 @@ Careerly is a small Flask web app for a career-focused landing page / dashboard.
    ```bash
    pip install -r requirements.txt
    ```
-3. Start the app:
+3. Duplicate .env.example, rename to .env and fill all required fields
+4. Start the app:
    ```bash
    flask run --debug
    ```
-4. Open http://127.0.0.1:5000
+5. Open http://127.0.0.1:5000
 
 ## Project structure
 

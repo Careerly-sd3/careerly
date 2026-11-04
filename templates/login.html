@@ -1,13 +1,17 @@
 {% extends "template.html" %}
-{% block title %}Log in | Careerly{% endblock %}
+{% block title %}Log in{% endblock %}
+
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}" />
+{% endblock %}
 
 {% block main %}
 {% macro field(id, label, type, autocomplete, value="", extra="") %}
 <div class="auth-field">
     <label for="{{ id }}">{{ label }}</label>
     <input id="{{ id }}" name="{{ id }}" type="{{ type }}" autocomplete="{{ autocomplete }}" value="{{ value }}"
-        required {{ extra | safe }}
-        {% if errors.get(id) %}aria-invalid="true" aria-describedby="{{ id }}-error"{% endif %}>
+        required {{ extra | safe }} {% if errors.get(id) %}aria-invalid="true" aria-describedby="{{ id }}-error" {%
+        endif %}>
     {% if errors.get(id) %}
     <p id="{{ id }}-error" class="auth-error">{{ errors[id] }}</p>
     {% endif %}
@@ -20,7 +24,7 @@
 
     {# CAR-35: one general message for a wrong email or a wrong password #}
     {% if login_error %}
-    <div class="flash flash-error" role="alert">{{ login_error }}</div>
+    <div class="alert theme-danger">{{ login_error }}</div>
     {% endif %}
 
     {# No action attribute: the form posts to the current address, so the ?next= part is kept #}

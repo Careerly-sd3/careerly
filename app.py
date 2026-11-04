@@ -1,5 +1,7 @@
 import os
 
+from db import init_app
+
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user
@@ -26,6 +28,7 @@ load_dotenv()
 
 
 app = Flask(__name__)
+init_app(app)
 
 app.config["SECRET_KEY"] = os.environ.get(
     "SECRET_KEY")

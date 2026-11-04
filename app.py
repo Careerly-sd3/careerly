@@ -1,5 +1,7 @@
 import os
 
+from db import init_app
+
 from services.access import current_user_id, login_required
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
@@ -19,6 +21,7 @@ load_dotenv()
 
 
 app = Flask(__name__)
+init_app(app)
 
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-change-me")
 

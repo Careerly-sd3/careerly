@@ -2,7 +2,7 @@
 
 ## 1. Purpose and scope
 
-This document describes the relational database design for Careerly, using Python, Flask and MySQL. The team has reviewed the six-table ERD and was happy with it. That review does not imply approval of every additional recommendation in this document. The design does not indicate that the database or planned features are implemented.
+This document describes the relational database design for Careerly, using Python, Flask and MySQL. The team has reviewed the six-table ERD and was happy with it. That review does not imply approval of every additional recommendation in this document. The six-table schema is implemented in hosted MySQL; tracker persistence, CV extraction and AI generation remain unimplemented. The implementation and verification status below distinguishes these capabilities.
 
 The core tracker comprises User, Company, JobApplication and Interview. UserSkill supports manual and planned CV-extracted skills; AIAnalysis stores results for planned interview preparation, missing-skills analysis and CV matching. CV extraction and AI generation are planned features and are not implemented in the current code.
 
@@ -19,7 +19,7 @@ The core tracker comprises User, Company, JobApplication and Interview. UserSkil
 
 ## 3. Attribute definitions
 
-Names, lengths and types follow the attached ERD. `NULL` annotations mean nullable; fields without that annotation are interpreted as NOT NULL, subject to team confirmation. All primary keys use signed `INT AUTO_INCREMENT`; all foreign keys use matching signed `INT`. Required fields without a default must be supplied when inserting a record. `None specified` means no default has been agreed; in particular, automatic timestamp defaults or update behaviour are not assumed. Rules requested for CAR-2 but absent from the diagram are identified in the review notes.
+Names, lengths and types follow the attached ERD. `NULL` annotations mean nullable; fields without that annotation are NOT NULL, as agreed by the team. All primary keys use signed `INT AUTO_INCREMENT`; all foreign keys use matching signed `INT`. Required fields without a default must be supplied when inserting a record. `None specified` means no explicit database default is defined. The team agreed that Flask supplies UTC DATETIME values without database timestamp defaults and updates JobApplication.updated_at whenever an application changes. Rules requested for CAR-2 but absent from the diagram are identified in the review notes.
 
 ### User
 
@@ -120,11 +120,11 @@ Every relationship is one-to-many: a parent can have zero or many children, and 
 
 Multiple interviews and analyses may belong to the same application. No uniqueness constraint on their application_id is proposed.
 
-## 5. Proposed deletion rules - awaiting team review
+## 5. Agreed deletion rules
 
-These are proposals, not agreed or implemented behaviour.
+The user reports that the team agreed all five actions below. Migration 001 defines them and was applied on 3 November 2026, as reported by the user. The approved deletion behaviour was included in the successful hosted CAR-158 verification recorded below.
 
-| Foreign key | Proposed parent deletion action | Effect |
+| Foreign key | Agreed parent deletion action | Effect |
 | --- | --- | --- |
 | UserSkill.user_id | CASCADE | Deleting a user deletes their skills. |
 | JobApplication.user_id | CASCADE | Deleting a user deletes their applications and, through the application relationships below, their interviews and analyses. |
@@ -144,29 +144,43 @@ The supplied PNG is copied unchanged; it remains the source diagram, including a
 
 ### Comparison with existing code
 
-- README.md describes a small Flask landing page/dashboard. app.py creates the Flask app and serves index.html at `/`; it contains no database connection, models, persistence, authentication or AI implementation.
+- app.py creates the Flask app, registers the database connection layer and serves index.html at `/` and the tracker at `/tracker`. The tracker retains main's session-based access guard and per-user sample data from tracker_data.py. Registration stores users in memory and the login page is a placeholder; tracker persistence and AI features are not implemented.
 - templates/index.html extends template.html. The base template displays Tracker, Browse and Interviews navigation and Login/Register labels, but supplies no database-backed forms or entity attribute names. The hard-coded profile name in a disabled template branch does not establish a User schema field.
-- No model files exist in the inspected repository, and requirements.txt contains Flask and its dependencies without a MySQL driver or ORM. There are no implemented database field names to reconcile. These code gaps do not justify removing or renaming ERD attributes.
+- db.py provides a lazy, Flask-context-scoped `mysql-connector-python` connection layer with CA certificate and hostname verification. It rolls back uncommitted work and closes connections at teardown without automatically committing. requirements.txt includes the MySQL driver and python-dotenv; no ORM or model layer is implemented. tracker_data.py supplies partial in-memory Company, JobApplication and Interview samples, not persistent models. The connection layer does not yet provide tracker persistence.
+
+### Reported hosted verification
+
+The following results were reported by the user and align with [MySQL setup](mysql-setup.md). This documentation update performs no additional testing.
+
+- Migration 001 was applied to the hosted `careerly` database on **3 November 2026**.
+- The real hosted Flask `db-check` succeeded against `careerly` with a non-empty session SSL cipher. The user also confirmed that `careerly_app` requires SSL.
+- Hosted CAR-158 schema verification on **3 November 2026** passed **136 checks; PASS**. Transaction rollback completed and synthetic test changes were not committed. Coverage included six-table CRUD, required fields, uniqueness, case/accent comparisons, allowed values, defaults, AI score rules, foreign keys and approved deletion behaviour.
+- The **empty-database** restore exercise on **3 November 2026** restored all six tables to the separate `careerly_restore_test` database. Exact row counts matched at zero for every table in both databases. Constraint counts matched: 6 PRIMARY KEY, 5 FOREIGN KEY, 2 UNIQUE and 5 CHECK in each database. Populated-data recovery, full schema-definition comparison and restored constraint behaviour were not tested.
+- Teammate connection verification remains **pending**. Tracker persistence remains **unimplemented**; the tracker continues to display sample data.
 
 ### ERD alignment and review scope
 
-- The team has reviewed the six-table ERD and was happy with it. Additional recommendations, particularly deletion actions and optional input provenance, must not be treated as approved by that review.
+- The team has reviewed the six-table ERD and was happy with it. The user subsequently reported agreement on deletion actions, nullability, comparison and timestamp handling for CAR-155. Optional input provenance remains outside that agreement.
 - `JobApplication.applied_at` is labelled `date NULL` in the saved diagram. The attribute table now uses nullable `DATE`, correcting the earlier `DATETIME` transcription. The label is readable and has no apparent type ambiguity; it records a date without a time component.
 - The diagram specifies `INT` identifiers without explicitly showing `AUTO_INCREMENT`. This document records `INT AUTO_INCREMENT` for all six primary keys as required by CAR-2; foreign keys remain matching signed `INT`.
 - The diagram shows `User.email` as unique. It omits annotations for combined `UserSkill` uniqueness, source values, the status default and allowed values, analysis types and the conditional score rule. These CAR-2 requirements are documented above; the supplied image remains unchanged.
 - `AIAnalysis.match_score` is shown as nullable `INT`. The CAR-2 rule refines that to required 0-100 for `cv_match` and NULL otherwise. No additional field is required for these value constraints.
-- Optional attributes are explicitly marked `NULL`; the document interprets all other attributes as NOT NULL. This interpretation is stated explicitly because the diagram does not spell out every NOT NULL constraint.
-- The diagram has no deletion actions. Section 5 remains a proposal awaiting approval, independently of the ERD review.
+- Optional attributes are explicitly marked `NULL`; the team has confirmed all other attributes are NOT NULL, although the diagram does not spell out every NOT NULL constraint.
+- The diagram has no deletion actions. The subsequently agreed actions are recorded in section 5 and migration 001; the image remains unchanged.
 
-### Implementation decisions
+### Agreed implementation contract
 
-These choices remain to be agreed during implementation; they are separate from the confirmed CAR-2 rules and the reported ERD review.
+The following decisions were reported by the user as agreed by the team. They specify application responsibilities without claiming those features have been implemented.
 
-- Decide timestamp defaults, automatic `updated_at` behaviour and the timezone convention. No automatic defaults are assumed here; `DATETIME` carries no timezone. `applied_at` and `closing_date` use `DATE`.
-- Agree skill-name normalisation, collation and email/skill case sensitivity while preserving manual skills and the combined uniqueness rule.
-- Agree vocabularies for `work_type`, `opportunity_type`, `interview_type` and `outcome`. Examples in the tables do not define allowed values or additional uniqueness constraints.
-- Select the target MySQL version and database/Flask validation mechanisms for allowed values and cross-field rules. The score rule must enforce both the range and the analysis-type/NULL combination.
-- Select the password-hashing approach and input-validation policy. No enforcement or application changes are implemented by this document.
+- Flask supplies UTC `DATETIME` values without database timestamp defaults. Flask sets `JobApplication.updated_at` whenever an application changes; there is no database automatic update clause.
+- Interview scheduling converts local input to UTC for storage and back to local time for display. `DATETIME` itself carries no timezone. `applied_at` and `closing_date` are `DATE` values without timezone conversion.
+- Use `utf8mb4_0900_ai_ci` for case/accent-insensitive comparisons and uniqueness. Flask trims skill names before saving, preserves display spelling and avoids duplicates while preserving manually added skills. The combined unique constraint enforces per-user uniqueness; it does not perform trimming.
+- Target Aiven MySQL 8.4.11. Migration 001 uses five named CHECK constraints: source, status, analysis type, cv_match score presence/range, and NULL scores for other analysis types. Allowed-value comparisons require exact-case spellings, independently of general collation. Explicit score NULL handling prevents a missing cv_match score passing through SQL UNKNOWN.
+
+### Remaining application decisions
+
+- Vocabularies for `work_type`, `opportunity_type`, `interview_type` and `outcome` remain unspecified. Examples in the tables do not impose allowed values or extra uniqueness constraints.
+- Password hashing and other input-validation implementation remain subsequent application work. This task does not change Flask or implement CV/AI features.
 
 ### Future considerations
 
@@ -176,6 +190,6 @@ The current ERD does not retain input snapshots or versions, so exact input reco
 
 ### CAR-2 completion and publication
 
-Teammate review of the six-table ERD has happened, and the team was happy with it. Record that review evidence on CAR-2. Separately record the unapproved deletion proposals and outstanding implementation decisions so they are not mistaken for agreed behaviour. Optional future enhancements, including `input_snapshot`, do not block CAR-2 completion.
+Teammate review of the six-table ERD has happened, and the team was happy with it. Record that review evidence on CAR-2. The user has subsequently reported agreement on the CAR-155 deletion, nullability, comparison and timestamp decisions recorded above. No reviewer names or approval artefacts are asserted here. Optional future enhancements, including `input_snapshot`, do not block CAR-2 completion.
 
-Merge and publication on the Database Structure page in Confluence remain outstanding. Complete the team's normal PR/merge process, publish the reviewed documentation, and link the resulting evidence to CAR-2 according to the team's Definition of Done. This work does not perform or claim merge or publication. Subsequent database implementation is outside this documentation task.
+Local repository history includes the CAR-2 documentation merge. Migration 001 has been applied and hosted schema verification has passed as recorded above. The current hosted-mysql branch work has not been committed or merged as part of this task. Confluence publication remains unverified; record actual publication evidence on CAR-2 according to the team's Definition of Done. Teammate connection verification and tracker persistence remain outstanding, and populated-data recovery remains untested. See [MySQL setup](mysql-setup.md) for setup instructions, verification limits and the migration application record.

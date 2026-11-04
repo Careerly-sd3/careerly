@@ -2,7 +2,7 @@
 
 ## Status and prerequisites
 
-Migration 001 was executed manually in Workbench on 3 November 2026, as reported by the user. `SHOW TABLES` confirmed all six tables. The user reports successful CAR-158 hosted verification on 3 November 2026: 136 checks passed; PASS, with transaction rollback completed and synthetic changes not committed. The user reports that Flask db-check succeeded against careerly with a non-empty session SSL cipher and confirms careerly_app requires SSL. The agent has not executed hosted tests. Teammates' connection tests remain pending.
+Migration 001 was executed manually in Workbench on 3 November 2026, as reported by the user. `SHOW TABLES` confirmed all six tables. The user reports successful CAR-158 hosted verification on 3 November 2026: 136 checks passed; PASS, with transaction rollback completed and synthetic changes not committed. The user reports that Flask db-check succeeded against careerly with a non-empty session SSL cipher and confirms careerly_app requires SSL. The agent has not executed hosted tests. One teammate, `careerly_alina`, verified access using their individual account on 4 November 2026 (04/11/2026): connection succeeded, all six tables were visible, and a non-empty session SSL cipher was separately confirmed. These checks were reported by the user; the other two teammates have not been reported as tested.
 
 The user confirms Aiven MySQL **8.4.11**, a working Workbench SSL connection, and a `careerly` database containing the six implemented tables, using `utf8mb4` / `utf8mb4_0900_ai_ci`. Target MySQL 8.4.11 for this release, including enforced CHECK constraints; do not use MariaDB or older MySQL as an unverified substitute. Database contents must be rechecked before execution.
 
@@ -174,7 +174,8 @@ WHERE `User` = 'careerly_app';
 | --- | --- | --- |
 | Correct `careerly_app` account requires SSL | Confirmed by user | User-reported; exact verification time not supplied |
 | Hosted `flask --app app db-check` succeeds | Succeeded against `careerly` with a non-empty session SSL cipher | User-reported; exact execution time not supplied |
-| Teammates' connection tests | Pending | No results supplied |
+| Teammate `careerly_alina` | Individual-account connection succeeded; all six tables visible; non-empty session SSL cipher separately confirmed | 4 November 2026 (04/11/2026); user-reported |
+| Other two teammates' connection tests | Pending | No results supplied |
 
 ### Mocked automated checks
 
@@ -218,7 +219,8 @@ Each completed check prints PASS; failure returns exit code 1 (missing opt-in re
 | Verification | Execution date (exact time not supplied) | Operator | Result/evidence |
 | --- | --- | --- | --- |
 | CAR-158 hosted schema runner | 3 November 2026 | Not recorded | User-reported: 136 checks passed; PASS. Transaction rollback completed; synthetic changes were not committed. |
-| Teammates' connection tests | Not recorded | Not recorded | Pending |
+| Teammate connection: `careerly_alina` | 4 November 2026 (04/11/2026) | `careerly_alina` | User-reported: individual-account connection succeeded, six tables visible, non-empty session SSL cipher separately confirmed |
+| Other two teammates' connection tests | Not recorded | Not recorded | Pending |
 
 Local checks remain safe to run without hosted access:
 
@@ -254,7 +256,7 @@ The user reports a successful **empty-database restore test** using MySQL Workbe
 | UNIQUE | 2 | 2 |
 | CHECK | 5 | 5 |
 
-This verifies restoration of the empty tables and the reported counts. It does **not** establish populated-data recovery, a full schema-definition comparison, or restored constraint behaviour. Matching counts alone do not prove identical constraint definitions or enforcement. The successful CAR-158 result applies to the source database; it must not be presented as a behavioural test of the restored database. Backup/restore timing, operator identity and backup checksums were not supplied. Teammates' connection verification remains **pending**.
+This verifies restoration of the empty tables and the reported counts. It does **not** establish populated-data recovery, a full schema-definition comparison, or restored constraint behaviour. Matching counts alone do not prove identical constraint definitions or enforcement. The successful CAR-158 result applies to the source database; it must not be presented as a behavioural test of the restored database. Backup/restore timing, operator identity and backup checksums were not supplied. One teammate, `careerly_alina`, has verified their individual-account connection, six-table visibility and non-empty session SSL cipher on 4 November 2026. The other two teammates' connection verification remains **pending**.
 
 ### Export warnings and future settings
 

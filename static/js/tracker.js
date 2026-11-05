@@ -38,3 +38,8 @@ if (practiceCard) {
         currentQuestion.textContent = questions[currentIndex];
     });
 }
+
+// 3. Filter dropdowns in the table header: choosing a value applies it straight away.
+document.querySelectorAll("[data-auto-submit]").forEach((select) => {
+    select.addEventListener("change", () => select.form.requestSubmit());
+});

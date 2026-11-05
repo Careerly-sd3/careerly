@@ -1,8 +1,13 @@
-"""Sample data for the tracker page, shaped like docs/database/database-design.md.
-"""
+"""Tracker page data, read from the JobApplication, Company and Interview tables."""
 
 from collections import Counter
-from datetime import date, datetime
+import logging
+
+import mysql.connector
+
+from db import DatabaseError, get_db
+
+logger = logging.getLogger(__name__)
 
 # JobApplication.status values, each with a Bootstrap theme colour for its badge.
 STATUS_THEMES = {
@@ -20,57 +25,26 @@ SUMMARY_STATUSES = ("Applied", "Interview", "Offer", "Rejected")
 # How many interview cards show before the "Show more" button.
 VISIBLE_INTERVIEWS = 2
 
-# Company table: company_id -> name.
-COMPANY_NAMES = {
-    1: "Qualcomm",
-    2: "Motorola Solutions",
-    3: "Apple",
-    4: "Trend Micro",
-    5: "Quest Software",
-    6: "F5",
-    7: "Amazon Web Services",
-    8: "Dell Technologies",
-    9: "Boston Scientific",
-    10: "Logitech",
-    11: "Workhuman",
-}
+# Shown where an interview has no venue or link.
+NO_LOCATION = "—"
 
+# Every query filters by the user's id, which is passed as a parameter, never joined into the text.
+APPLICATIONS_QUERY = """
+    SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date
+    FROM `JobApplication` a
+    JOIN `Company` c ON c.company_id = a.company_id
+    WHERE a.user_id = %s
+    ORDER BY a.application_id
+"""
 
-def _application(application_id, company_id, job_title, status, applied_at=None, closing_date=None, user_id=1):
-    """One JobApplication row (only the columns the page uses). Sample user 1 is the demo account."""
-    return {
-        "application_id": application_id,
-        "user_id": user_id,
-        "company_id": company_id,
-        "job_title": job_title,
-        "status": status,
-        "applied_at": applied_at,
-        "closing_date": closing_date,
-    }
-
-
-JOB_APPLICATIONS = (
-    _application(1, 1, "Software Engineering Intern", "Interview", date(2026, 10, 14)),
-    _application(2, 2, "Software Engineering Intern", "Interview", date(2026, 10, 16)),
-    _application(3, 3, "Software Automation Engineering Intern", "Applied", date(2026, 10, 20)),
-    _application(4, 4, "Applied AI Engineer Intern", "Offer", date(2026, 10, 8)),
-    _application(5, 5, "Software Engineering Intern", "Rejected", date(2026, 10, 5)),
-    _application(6, 6, "Software Engineering Intern", "Applied", date(2026, 10, 22)),
-    _application(7, 7, "Software Development Intern", "Applied", date(2026, 10, 25)),
-    _application(8, 8, "Software Engineering Intern", "Interview", date(2026, 10, 18)),
-    _application(9, 9, "Software Engineering Intern", "Saved", closing_date=date(2026, 11, 20)),
-    _application(10, 10, "Software UX Design Intern", "Rejected", date(2026, 10, 3)),
-    _application(11, 11, "Software Engineer Intern", "Withdrawn", date(2026, 10, 1)),
-)
-
-INTERVIEWS = (
-    {"interview_id": 1, "application_id": 1,
-     "scheduled_at": datetime(2026, 11, 12, 10, 0), "venue_or_link": "Online (Teams)"},
-    {"interview_id": 2, "application_id": 2,
-     "scheduled_at": datetime(2026, 11, 16, 14, 30), "venue_or_link": "Cork office"},
-    {"interview_id": 3, "application_id": 8,
-     "scheduled_at": datetime(2026, 11, 19, 11, 0), "venue_or_link": "Online (Zoom)"},
-)
+INTERVIEWS_QUERY = """
+    SELECT i.application_id, c.name AS company, a.job_title, i.scheduled_at, i.venue_or_link AS location
+    FROM `Interview` i
+    JOIN `JobApplication` a ON a.application_id = i.application_id
+    JOIN `Company` c ON c.company_id = a.company_id
+    WHERE a.user_id = %s
+    ORDER BY i.scheduled_at
+"""
 
 # Generic practice questions, the same for everyone. Personalised ones are planned
 # to come from AIAnalysis (interview_prep) later.
@@ -87,10 +61,22 @@ PRACTICE_QUESTIONS = (
     "Why do you want this internship, and what do you hope to learn from it?",
 )
 
-_APPLICATIONS_BY_ID = {application["application_id"]: application for application in JOB_APPLICATIONS}
+
+def _fetch_all(query, user_id):
+    """Run one read-only query for this user and return its rows as dictionaries."""
+    try:
+        cursor = get_db().cursor(dictionary=True)
+        try:
+            cursor.execute(query, (user_id,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+    except mysql.connector.Error:
+        logger.exception("Tracker query failed for user %s", user_id)
+        raise DatabaseError("Could not load your tracker data. Please try again later.") from None
 
 
-def _next_step(application):
+def _next_step(application, interviews):
     """Return (label, date or None) for the Next Step column, worked out from the record."""
     status = application["status"]
     if status == "Saved":
@@ -101,7 +87,7 @@ def _next_step(application):
     if status == "Interview":
         times = [
             interview["scheduled_at"]
-            for interview in INTERVIEWS
+            for interview in interviews
             if interview["application_id"] == application["application_id"]
         ]
         return ("Interview", min(times).date() if times else None)
@@ -110,18 +96,12 @@ def _next_step(application):
     return ("Closed", None)
 
 
-def _applications_of(user_id):
-    """Only this user's applications: the one place that keeps users' data apart."""
-    return [application for application in JOB_APPLICATIONS if application["user_id"] == user_id]
-
-
-def build_application_rows(user_id):
-    """Rows for the applications table."""
+def _application_rows(applications, interviews):
     rows = []
-    for application in _applications_of(user_id):
-        next_step, next_date = _next_step(application)
+    for application in applications:
+        next_step, next_date = _next_step(application, interviews)
         rows.append({
-            "company": COMPANY_NAMES[application["company_id"]],
+            "company": application["company"],
             "job_title": application["job_title"],
             "applied_at": application["applied_at"],
             "status": application["status"],
@@ -131,32 +111,43 @@ def build_application_rows(user_id):
     return rows
 
 
-def build_interview_cards(user_id):
-    """Interview cards for this user's applications, soonest first."""
-    own_application_ids = {application["application_id"] for application in _applications_of(user_id)}
-    own_interviews = [interview for interview in INTERVIEWS if interview["application_id"] in own_application_ids]
-    cards = []
-    for interview in sorted(own_interviews, key=lambda item: item["scheduled_at"]):
-        application = _APPLICATIONS_BY_ID[interview["application_id"]]
-        cards.append({
-            "company": COMPANY_NAMES[application["company_id"]],
-            "job_title": application["job_title"],
+def _interview_cards(interviews):
+    """Interview cards, soonest first."""
+    return [
+        {
+            "company": interview["company"],
+            "job_title": interview["job_title"],
             "scheduled_at": interview["scheduled_at"],
-            "location": interview["venue_or_link"],
-        })
-    return cards
+            "location": interview["location"] or NO_LOCATION,
+        }
+        for interview in sorted(interviews, key=lambda item: item["scheduled_at"])
+    ]
 
 
-def build_practice_meta(user_id):
-    """Subtitle for the practice card, from this user's soonest interview ('' if they have none)."""
-    cards = build_interview_cards(user_id)
+def _practice_meta(cards):
+    """Subtitle for the practice card, from the soonest interview ('' if there is none)."""
     if not cards:
         return ""
     soonest = cards[0]
     return f"{soonest['job_title']} · {soonest['company']} · {soonest['scheduled_at'].strftime('%A')}"
 
 
-def build_status_counts(user_id):
-    """Number of this user's applications per status, for the count tiles."""
-    counts = Counter(application["status"] for application in _applications_of(user_id))
+def _status_counts(applications):
+    counts = Counter(application["status"] for application in applications)
     return {status: counts[status] for status in SUMMARY_STATUSES}
+
+
+def load_tracker_page(user_id):
+    """Everything the tracker page shows for one user, from two queries.
+
+    Raises DatabaseError (safe to show) when the database cannot be read.
+    """
+    applications = _fetch_all(APPLICATIONS_QUERY, user_id)
+    interviews = _fetch_all(INTERVIEWS_QUERY, user_id)
+    cards = _interview_cards(interviews)
+    return {
+        "applications": _application_rows(applications, interviews),
+        "interviews": cards,
+        "practice_meta": _practice_meta(cards),
+        "status_counts": _status_counts(applications),
+    }

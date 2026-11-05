@@ -1,6 +1,6 @@
 import os
 
-from db import init_app
+from db import DatabaseError, init_app
 
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
@@ -18,10 +18,7 @@ from tracker_data import (
     PRACTICE_QUESTIONS,
     STATUS_THEMES,
     VISIBLE_INTERVIEWS,
-    build_application_rows,
-    build_interview_cards,
-    build_practice_meta,
-    build_status_counts,
+    load_tracker_page,
 )
 
 load_dotenv()
@@ -68,17 +65,20 @@ def index():
 @app.route("/tracker")
 @login_required
 def tracker():
-    user_id = current_user_id()
+    status_code = 200
+    try:
+        page = load_tracker_page(current_user_id())
+    except DatabaseError as error:
+        flash(str(error), "danger")
+        page = {"applications": [], "interviews": [], "practice_meta": "", "status_counts": {}}
+        status_code = 503
     return render_template(
         "tracker.html",
-        applications=build_application_rows(user_id),
-        interviews=build_interview_cards(user_id),
-        practice_meta=build_practice_meta(user_id),
+        **page,
         practice_questions=PRACTICE_QUESTIONS,
-        status_counts=build_status_counts(user_id),
         status_themes=STATUS_THEMES,
         visible_interviews=VISIBLE_INTERVIEWS,
-    )
+    ), status_code
 
 
 @app.route("/register", methods=["GET", "POST"])

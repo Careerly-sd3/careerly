@@ -137,16 +137,37 @@ def _status_counts(applications):
     return {status: counts[status] for status in SUMMARY_STATUSES}
 
 
-def load_tracker_page(user_id):
+def _filter_rows(rows, status, company, role):
+    """Keep the rows that match every filter that is switched on (a blank filter is off)."""
+    return [
+        row for row in rows
+        if (not status or row["status"] == status)
+        and (not company or row["company"] == company)
+        and (not role or row["job_title"] == role)
+    ]
+
+
+def _options(rows, key):
+    """Each different value of `key`, once, in alphabetical order, for a dropdown."""
+    return sorted({row[key] for row in rows}, key=str.casefold)
+
+
+def load_tracker_page(user_id, status="", company="", role=""):
     """Everything the tracker page shows for one user, from two queries.
 
+    The filters only narrow the applications table. The status tiles, the total and
+    the company and role dropdown lists always cover all of the user's applications.
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
     interviews = _fetch_all(INTERVIEWS_QUERY, user_id)
     cards = _interview_cards(interviews)
+    rows = _application_rows(applications, interviews)
     return {
-        "applications": _application_rows(applications, interviews),
+        "applications": _filter_rows(rows, status, company, role),
+        "total_applications": len(applications),
+        "company_options": _options(rows, "company"),
+        "role_options": _options(rows, "job_title"),
         "interviews": cards,
         "practice_meta": _practice_meta(cards),
         "status_counts": _status_counts(applications),

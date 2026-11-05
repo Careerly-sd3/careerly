@@ -66,15 +66,22 @@ def index():
 @login_required
 def tracker():
     status_code = 200
+    status = request.args.get("status", "")
+    company = request.args.get("company", "")
+    role = request.args.get("role", "")
     try:
-        page = load_tracker_page(current_user_id())
+        page = load_tracker_page(current_user_id(), status=status, company=company, role=role)
     except DatabaseError as error:
         flash(str(error), "danger")
-        page = {"applications": [], "interviews": [], "practice_meta": "", "status_counts": {}}
+        page = {"applications": [], "interviews": [], "practice_meta": "",
+                "status_counts": {}, "total_applications": 0}
         status_code = 503
     return render_template(
         "tracker.html",
         **page,
+        status=status,
+        company=company,
+        role=role,
         practice_questions=PRACTICE_QUESTIONS,
         status_themes=STATUS_THEMES,
         visible_interviews=VISIBLE_INTERVIEWS,

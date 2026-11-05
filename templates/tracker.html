@@ -61,6 +61,11 @@
     .visible-scroll::-webkit-scrollbar { width: 0.75rem; }
     .visible-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
     .visible-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border: 3px solid #f3f4f6; border-radius: 999px; }
+    /* A column heading that is also a dropdown: it reads like the other headings, with an arrow after the name.
+       The real <select> sits invisibly on top, so clicking the heading opens the normal dropdown list. */
+    .filter-head { position: relative; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+    .filter-head select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+    .filter-head:hover, .filter-head:focus-within, .filter-head.is-active { text-decoration: underline; text-underline-offset: 0.25em; }
     @supports not selector(::-webkit-scrollbar) {
         .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
     }
@@ -86,39 +91,62 @@
         </div>
     </div>
 
-    {# Applications table: about 5 rows tall, then it scrolls #}
-    {% if applications %}
-    <div class="table-card mb-0" data-bs-theme="light">
-        <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem">
-            <table class="table table-hover md:table-stacked">
-                <thead class="sticky-top">
-                    <tr>
-                        <th scope="col">Company</th>
-                        <th scope="col">Role</th>
-                        <th scope="col">Applied</th>
-                        <th scope="col">Status</th>
-                        <th scope="col">Next Step</th>
-                        <th scope="col">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for application in applications %}
-                    <tr>
-                        <td>{{ application.company }}</td>
-                        <td data-cell="Role">{{ application.job_title }}</td>
-                        <td data-cell="Applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
-                        <td data-cell="Status">{{ status_badge(application.status) }}</td>
-                        <td data-cell="Next Step">
-                            {{ application.next_step }}
-                            {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
-                        </td>
-                        <td data-cell="Actions">{{ row_actions(application.company) }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    {# The table's headings Company, Role and Status are dropdown filters (one GET form, so the address can be bookmarked) #}
+    {% if total_applications %}
+    {% macro filter_heading(name, label, all_label, options, selected) -%}
+    <label class="filter-head{% if selected %} is-active{% endif %}">
+        {{ label }} <i class="bi bi-chevron-down fs-xs" aria-hidden="true"></i>
+        <select name="{{ name }}" aria-label="Filter by {{ label|lower }}" data-auto-submit>
+            <option value="">{{ all_label }}</option>
+            {% for option in options %}
+            <option value="{{ option }}"{% if option == selected %} selected{% endif %}>{{ option }}</option>
+            {% endfor %}
+        </select>
+    </label>
+    {%- endmacro %}
+
+    <form method="get" action="{{ url_for('tracker') }}" class="d-flex flex-column gap-2">
+        {% if status or company or role %}
+        <div><a href="{{ url_for('tracker') }}" class="fs-sm">Clear filters</a></div>
+        {% endif %}
+
+        {# Applications table: about 5 rows tall, then it scrolls #}
+        <div class="table-card mb-0" data-bs-theme="light">
+            <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem">
+                <table class="table table-hover md:table-stacked">
+                    <thead class="sticky-top">
+                        <tr>
+                            <th scope="col">{{ filter_heading('company', 'Company', 'All companies', company_options, company) }}</th>
+                            <th scope="col">{{ filter_heading('role', 'Role', 'All roles', role_options, role) }}</th>
+                            <th scope="col">Applied</th>
+                            <th scope="col">{{ filter_heading('status', 'Status', 'All statuses', status_themes, status) }}</th>
+                            <th scope="col">Next Step</th>
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for application in applications %}
+                        <tr>
+                            <td>{{ application.company }}</td>
+                            <td data-cell="Role">{{ application.job_title }}</td>
+                            <td data-cell="Applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
+                            <td data-cell="Status">{{ status_badge(application.status) }}</td>
+                            <td data-cell="Next Step">
+                                {{ application.next_step }}
+                                {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
+                            </td>
+                            <td data-cell="Actions">{{ row_actions(application.company) }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center fg-3 py-4">No applications match these filters. Try different choices or clear the filters.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
+    </form>
     {% else %}
     {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet.") }}
     {% endif %}

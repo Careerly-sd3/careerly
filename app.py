@@ -5,8 +5,12 @@ from db import DatabaseError, init_app
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user
+from sqlalchemy.engine import URL
 
+from extensions import db
+from services.access import current_user_id
 from services.auth_service import (
+    EmailAlreadyExists,
     authenticate,
     create_user,
     get_user_by_id,
@@ -23,11 +27,32 @@ from tracker_data import (
 
 load_dotenv()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 app = Flask(__name__)
 init_app(app)
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
+
+# db
+app.config["SQLALCHEMY_DATABASE_URI"] = URL.create(
+    "mysql+pymysql",
+    username=os.environ["DB_USER"],
+    password=os.environ["DB_PASSWORD"],
+    host=os.environ["DB_HOST"],
+    port=int(os.environ["DB_PORT"]),
+    database=os.environ["DB_NAME"],
+)
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "pool_pre_ping": True,
+    "pool_recycle": 280,
+    "connect_args": {
+        "ssl_ca": os.path.join(BASE_DIR, os.environ["DB_SSL_CA"]),
+        "ssl_verify_cert": True,
+        "ssl_verify_identity": True,
+    },
+}
+db.init_app(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -102,7 +127,15 @@ def register():
             }
             return render_template("register.html", errors=errors, form=form), 400
 
-        create_user(request.form)
+        try:
+            create_user(request.form)
+        except EmailAlreadyExists:
+            errors = {"email": "An account with this email already exists."}
+            form = {
+                "name": request.form.get("name", ""),
+                "email": request.form.get("email", ""),
+            }
+            return render_template("register.html", errors=errors, form=form), 400
         flash("Account created. Please log in.", "success")
         return redirect(url_for("login"))
 

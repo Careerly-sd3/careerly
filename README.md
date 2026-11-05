@@ -30,6 +30,11 @@ Careerly is a small Flask web app for a career-focused landing page / dashboard.
 - `app.py` — Flask application
 - `templates/` — HTML pages
 - `static/` — CSS and frontend assets
+- `extensions.py` — shared Flask extensions (SQLAlchemy db object)
+- `services/` — authentication and acess login
+- `certs/` — public CA certificate for database connection
+- `db_check.py` — script to verify database connection (and print schema)
+- `.env.example` — template for required environment variables
 
 ## Database design
 

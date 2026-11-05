@@ -1,39 +1,54 @@
-
-# functionality is fully operational but the users are stored locally until database is configured.
-
 """Registration and login logic for Careerly (CAR-20 and CAR-30).
 
 Kept separate from the routes so it can be unit tested in CAR-75.
+Users are stored in the `User` table (CAR-2) through Flask-SQLAlchemy.
 """
 import re
 
-from flask_login import UserMixin, current_user
+from flask_login import UserMixin
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import check_password_hash, generate_password_hash
+
+from extensions import db
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
 
-
-class User(UserMixin):
-    """What Flask-Login needs to represent a logged-in user.
-
-    UserMixin supplies is_authenticated, is_active, get_id() and so on.
-    TEMPORARY: when the database exists, make this the SQLAlchemy User
-    model (inheriting UserMixin) instead of a plain class.
-    """
-
-    def __init__(self, id, name, email, password_hash):
-        self.id = id
-        self.name = name
-        self.email = email
-        self.password_hash = password_hash
+# column sizes to match User table
+MAX_NAME_LENGTH = 100
+MAX_EMAIL_LENGTH = 255
 
 
-# temp in-memory store so the pages work before the database is connected.
-# need to replace email_exists(), create_user(), get_user_by_email() and
-# get_user_by_id() with queries on the User table (CAR-2).
-_users = {}
-_next_id = 1
+class EmailAlreadyExists(Exception):
+    """Raised by create_user() when the unique email constraint is hit,
+    e.g. two people registering the same email at the same moment."""
+
+
+class User(UserMixin, db.Model):
+    """Maps to the existing `User` table. The table already exists, so do
+    not call db.create_all() for it."""
+
+    __tablename__ = "User"
+
+    user_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(255), nullable=False, unique=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    phone_number = db.Column(db.String(30), nullable=True)
+    # The database has no default for created_at, so the app supplies it on insert.
+    created_at = db.Column(db.DateTime, nullable=False, default=func.now())
+    cv_text = db.Column(db.Text, nullable=True)
+
+    @property
+    def id(self):
+        """Alias so code written against the old in-memory User (user.id) still works."""
+        return self.user_id
+
+    def get_id(self):
+        """Flask-Login looks for `id` by default; our primary key is user_id."""
+        return str(self.user_id)
+
 
 _DUMMY_HASH = generate_password_hash("not-a-real-password")
 
@@ -49,22 +64,24 @@ def normalise_email(email):
 
 # find user
 def email_exists(email):
-    return normalise_email(email) in _users
+    return get_user_by_email(email) is not None
 
 
 def get_user_by_email(email):
-    return _users.get(normalise_email(email))
+    return db.session.execute(
+        db.select(User).where(User.email == normalise_email(email))
+    ).scalar_one_or_none()
 
 
 def get_user_by_id(user_id):
-    """Flask-Login gives the id back as text, so compare as text."""
-    for user in _users.values():
-        if str(user.id) == str(user_id):
-            return user
-    return None
+    """Flask-Login gives the id back as text, so convert it before the lookup."""
+    try:
+        return db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
 
 
-#registration
+# registration
 
 # special characters, lower/uppercase addition for passwords maybe.
 # feedback: accessibility (speech access, colorblind, etc.)
@@ -83,10 +100,12 @@ def validate_registration(form):
 
     if not name:
         errors["name"] = "Enter your name."
+    elif len(name) > MAX_NAME_LENGTH:
+        errors["name"] = f"Name must be {MAX_NAME_LENGTH} characters or fewer."
 
     if not email:
         errors["email"] = "Enter your email address."
-    elif not EMAIL_PATTERN.match(email):
+    elif len(email) > MAX_EMAIL_LENGTH or not EMAIL_PATTERN.match(email):
         errors["email"] = "Please enter a valid email address."
     elif email_exists(email):
         errors["email"] = "An account with this email already exists."
@@ -105,19 +124,26 @@ def validate_registration(form):
 
 
 def create_user(form):
-    """Save a new user. Call only after validate_registration() returned no errors."""
-    global _next_id
-    email = normalise_email(form.get("email"))
-    _next_id += 1
-    _users[email] = User(
-        id=_next_id,
+    """Save a new user. Call only after validate_registration() returned no errors.
+
+    Raises EmailAlreadyExists if the email was taken between validation and
+    the insert (the unique index on User.email is the final safeguard).
+    """
+    user = User(
         name=form.get("name").strip(),
-        email=email,
+        email=normalise_email(form.get("email")),
         password_hash=generate_password_hash(form.get("password")),
     )
+    db.session.add(user)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        raise EmailAlreadyExists(user.email)
+    return user
 
 
-#login
+# login
 
 def validate_login(form):
     """CAR-33: both fields are required (spaces only counts as empty)."""
@@ -137,6 +163,7 @@ def authenticate(email, password):
     """
     user = get_user_by_email(email)
     if user is None:
+        # Hash anyway so a missing email takes about as long as a wrong password.
         check_password_hash(_DUMMY_HASH, password or "")
         return None
     if check_password_hash(user.password_hash, password or ""):

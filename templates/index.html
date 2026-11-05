@@ -1,5 +1,9 @@
 {% extends "template.html" %}
-{% block title %}Careerly{% endblock %}
+{% block title %}Home{% endblock %}
+
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}" />
+{% endblock %}
 
 {% block main %}
 <section class="d-grid grid-cols-2 w-100 align-items-center gap-12">
@@ -15,11 +19,13 @@
             Everything you need for your job search, all in one place.
         </p>
         <div class="d-flex gap-5">
-            <a href="#" class="btn-solid theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold hover-lift anim">
+            <a href="{{ url_for('register') }}"
+                class="btn-solid theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold hover-lift anim">
                 Get started
                 <i class="bi bi-arrow-up-right"></i>
             </a>
-            <a href="#" class="btn-outline theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold hover-lift anim">
+            <a href="{{ url_for('login') }}"
+                class="btn-outline theme-inverse py-5 px-7 gap-4 rounded-7 fw-bold hover-lift anim">
                 Log in
                 <i class="bi bi-arrow-right"></i>
             </a>
@@ -112,7 +118,7 @@
             </div>
             <h4 class="mb-4 fw-bold">{{ title }}</h4>
             <small class="mb-7 fg-2 lh-18">{{ description }}</small>
-            <a href="#" class="d-flex align-items-center gap-3 fg-turquoise small fw-semibold">
+            <a href="{{ url_for('register') }}" class="d-flex align-items-center gap-3 fg-turquoise small fw-semibold">
                 {{ link }}
                 <i class="bi bi-arrow-right"></i>
             </a>
@@ -127,7 +133,7 @@
         <strong class="fs-4xl ls-n1">Ready to organise your job search?</strong>
         <span class="fg-1 mb-4">Bring your opportunities, applications and interviews together with Careerly.</span>
 
-        <a href="#" class="btn-solid theme-inverse w-fit py-5 px-7 gap-4 rounded-7 fw-bold">
+        <a href="{{ url_for('register') }}" class="btn-solid theme-inverse w-fit py-5 px-7 gap-4 rounded-7 fw-bold">
             Create your account
             <i class="bi bi-arrow-up-right"></i>
         </a>

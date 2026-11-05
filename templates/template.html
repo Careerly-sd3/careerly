@@ -10,8 +10,9 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@6.0.0-alpha.1/dist/css/bootstrap.min.css" rel="stylesheet"
         integrity="sha384-B/GM4XqrwHnWXNOWMbloTmrYXZg10cakYGmpfsR/bbzQ6JAJI4ihuyADKLnBgrCe" crossorigin="anonymous">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.css" />
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
-    <title>{% block title %}{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    {% block css %}{% endblock %}
+    <title>{% block title %}{% endblock %} | Careerly</title>
 </head>
 
 <body class="d-flex flex-column m-auto gap-12 px-5">
@@ -27,14 +28,15 @@
 
             <div id="nav-links" class="btn-group">
                 {% for endpoint, label, icon in nav_items %}
-                <a class="{{ 'btn-solid' if request.endpoint == endpoint else 'btn-outline' }} theme-inverse" href="{{ url_for(endpoint) }}">
+                <a class="{{ 'btn-solid' if request.endpoint == endpoint else 'btn-outline' }} theme-inverse"
+                    href="{{ url_for(endpoint) }}">
                     <i class="bi {{ icon }}" aria-hidden="true"></i>
                     <span class="nav-option-text anim">&nbsp;{{ label }}</span>
                 </a>
                 {% endfor %}
             </div>
 
-            {% if false %}
+            {% if current_user.is_authenticated %}
             <button class="btn-solid btn-styled theme-inverse" data-bs-toggle="menu">
                 <i class="bi bi-person-fill"></i>
                 Danyil
@@ -52,8 +54,8 @@
             </div>
             {% else %}
             <ul class="nav nav-underline">
-                <a class="nav-link fg-white bg-transparent" href="{{ url_for('login') }}">Login</a>
-                <a class="nav-link fg-white bg-transparent" href="{{ url_for('register') }}">Register</a>
+                <a class="nav-link fg-white bg-transparent anim" href="{{ url_for('login') }}">Login</a>
+                <a class="nav-link fg-white bg-transparent anim" href="{{ url_for('register') }}">Register</a>
             </ul>
             {% endif %}
         </nav>
@@ -62,7 +64,7 @@
     <main class="d-flex flex-column flex-grow-1">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
-        <div class="flash flash-{{ category }}" role="status">{{ message }}</div>
+        <div class="alert theme-{{ category }}">{{ message }}</div>
         {% endfor %}
         {% endwith %}
 

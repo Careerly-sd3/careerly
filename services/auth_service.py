@@ -7,7 +7,7 @@ Kept separate from the routes so it can be unit tested in CAR-75.
 """
 import re
 
-from flask_login import UserMixin
+from flask_login import UserMixin, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -36,6 +36,10 @@ _users = {}
 _next_id = 1
 
 _DUMMY_HASH = generate_password_hash("not-a-real-password")
+
+def current_user_id():
+    """The logged-in user's id, or None when nobody is logged in."""
+    return getattr(current_user, "id", None)
 
 
 def normalise_email(email):
@@ -104,15 +108,13 @@ def create_user(form):
     """Save a new user. Call only after validate_registration() returned no errors."""
     global _next_id
     email = normalise_email(form.get("email"))
-    user = User(
+    _next_id += 1
+    _users[email] = User(
         id=_next_id,
         name=form.get("name").strip(),
         email=email,
         password_hash=generate_password_hash(form.get("password")),
     )
-    _next_id += 1
-    _users[email] = user
-    return user
 
 
 #login

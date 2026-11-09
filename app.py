@@ -7,6 +7,7 @@ from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user
 
 from services.auth_service import (
+    EmailAlreadyExists,
     authenticate,
     create_user,
     get_user_by_id,
@@ -27,12 +28,17 @@ load_dotenv()
 app = Flask(__name__)
 init_app(app)
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to continue."
 login_manager.login_message_category = "danger"
+
+
+@app.errorhandler(DatabaseError)
+def database_unavailable(error):
+    return "Database access is temporarily unavailable. Please try again later.", 503
 
 
 @login_manager.user_loader
@@ -102,7 +108,15 @@ def register():
             }
             return render_template("register.html", errors=errors, form=form), 400
 
-        create_user(request.form)
+        try:
+            create_user(request.form)
+        except EmailAlreadyExists:
+            errors = {"email": "An account with this email already exists."}
+            form = {
+                "name": request.form.get("name", ""),
+                "email": request.form.get("email", ""),
+            }
+            return render_template("register.html", errors=errors, form=form), 400
         flash("Account created. Please log in.", "success")
         return redirect(url_for("login"))
 

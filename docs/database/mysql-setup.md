@@ -6,7 +6,7 @@ Migration 001 was executed manually in Workbench on 3 November 2026, as reported
 
 The user confirms Aiven MySQL **8.4.11**, a working Workbench SSL connection, and a `careerly` database containing the six implemented tables, using `utf8mb4` / `utf8mb4_0900_ai_ci`. Target MySQL 8.4.11 for this release, including enforced CHECK constraints; do not use MariaDB or older MySQL as an unverified substitute. Database contents must be rechecked before execution.
 
-Use a schema-management account through a certificate- and hostname-verified encrypted connection. Credentials do not belong in these files. The user confirms `careerly_app` has SELECT, INSERT, UPDATE and DELETE on `careerly.*`. The user confirms its REQUIRE SSL policy. The empty-database backup/restore exercise is recorded below; populated-data recovery and tracker persistence remain outstanding.
+Use a schema-management account through a certificate- and hostname-verified encrypted connection. Credentials do not belong in these files. The user confirms `careerly_app` has SELECT, INSERT, UPDATE and DELETE on `careerly.*`. The user confirms its REQUIRE SSL policy. The empty-database backup/restore exercise is recorded below; populated-data recovery and application/interview write routes remain outstanding. Tracker reads now use MySQL.
 
 ## Existing database creation
 
@@ -150,7 +150,7 @@ To start the existing application:
 .\.venv\Scripts\python.exe -m flask --app app run --debug
 ```
 
-Importing or starting the application does not open a database connection. `/tracker` retains main's session-based login requirement and per-user sample-data filtering; these routes do not open database connections. Future persistence code calls `db.get_db()` inside a Flask context, closes its cursors, and explicitly commits only a completed unit of work. Connections are reused within an application/request context, with rollback and close at context teardown (including errors); teardown never commits. No tracker persistence or sample import is included. Main's registration service still stores users in memory, and the login page remains a placeholder; the connection merge does not move registration into MySQL.
+Importing or starting the application does not open a database connection. `/tracker` requires Flask-Login authentication and reads owner-filtered applications/interviews from MySQL. An authenticated request reloads its User record from MySQL; application import/startup alone remains lazy. Future persistence code calls `db.get_db()` inside a Flask context, closes its cursors, and explicitly commits only a completed unit of work. Connections are reused within an application/request context, with rollback and close at context teardown (including errors); teardown never commits. Tracker reads are database-backed; application CRUD and interview mutation routes remain unimplemented. Registration and login now use the same persisted MySQL User records. No sample data is imported.
 
 ### Verify account REQUIRE SSL separately
 
@@ -301,3 +301,44 @@ ORDER BY `CONSTRAINT_SCHEMA`, `CONSTRAINT_TYPE`;
 ```
 
 For a later exercise, replace only the restore schema literal in the final query with the new target name. Constraint counts do not substitute for comparing `SHOW CREATE TABLE` definitions or testing enforcement.
+
+## Persistent authentication integration (local verification only)
+
+Registration, login and Flask-Login user loading share `services/auth_service.py`
+and the existing `db.get_db()` connection. Configure only `SECRET_KEY`,
+`MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` and
+`MYSQL_SSL_CA` privately. No `DB_*` aliases, Flask-SQLAlchemy engine, PyMySQL,
+in-memory account fallback, schema creation or password resets are used.
+`certs/` remains an ignored optional location for the genuine service CA file.
+
+`create_user(form)` returns a User adapter whose `user_id` and `id` are MySQL's
+generated ID; `get_id()` returns that same ID as text for Flask-Login. It supplies
+an explicit UTC `created_at`, hashes with Werkzeug and explicitly commits the
+insert. Only duplicate-key error 1062 becomes `EmailAlreadyExists`, including a
+race after validation. Failed writes attempt rollback; failed/uncertain commits
+must be checked before retrying. Active caller transactions are refused untouched.
+
+Email lookup and session reload use parameterised SELECTs on the existing User
+table. Invalid session IDs return no user without SQL. `current_user_id()` is the
+single canonical ownership helper and uses the persisted Flask-Login user's
+`user_id`, never posted identity fields. Authentication reads end only their own
+read transactions, preserving active caller work and allowing subsequent interview
+service transactions on an otherwise idle context connection. Teardown is unchanged.
+
+Login verifies existing Werkzeug scrypt/PBKDF2 hashes without rehashing or changing
+records. Tests use synthetic hashes, including both formats; actual hosted account
+hash compatibility, restart persistence, successful registration/login and cross-user
+browser requests still require separately authorised runtime verification. No real
+User records or hashes were inspected for this integration. Database failures return
+sanitised errors; passwords and password hashes are never logged.
+
+The opt-in `python db_check.py` diagnostic now uses the same verified helper and
+prints only connection/schema metadata, without connecting on import. It is not
+executed by the local tests and is not a second configuration mechanism.
+
+Run local tests with `.\.venv\Scripts\python.exe -m unittest discover -s tests -v`.
+Their database boundaries, private configuration loading and network calls are
+mocked. This integration does not change the previously reported 136-check hosted
+schema result, the empty-database restore limits, or the pending teammate checks.
+No new hosted authentication verification is claimed. Interview routes remain
+unexposed pending review and runtime verification of persistent identity.

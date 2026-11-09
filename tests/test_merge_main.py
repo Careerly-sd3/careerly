@@ -8,6 +8,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 
 from werkzeug.security import check_password_hash
 
+from auth_fixtures import AuthDatabaseFixture
+
 
 class MainMergeTests(unittest.TestCase):
     def setUp(self):
@@ -26,9 +28,10 @@ class MainMergeTests(unittest.TestCase):
         self.addCleanup(config.stop)
         self.client = self.module.app.test_client()
         self.auth = importlib.import_module("services.auth_service")
-        users = patch.dict(self.auth._users, {}, clear=True)
-        users.start()
-        self.addCleanup(users.stop)
+        self.database = AuthDatabaseFixture()
+        provider = patch("services.auth_service.get_db", return_value=self.database.connection)
+        provider.start()
+        self.addCleanup(provider.stop)
 
     def tearDown(self):
         self.connect.assert_not_called()
@@ -73,7 +76,7 @@ class MainMergeTests(unittest.TestCase):
             cursor.execute.side_effect = execute
             other_client = self.module.app.test_client()
             for client, form in [(self.client, first_form), (other_client, second_form)]:
-                login = client.post("/login", data=form)
+                login = client.post("/login", data=form | {"user_id": "999999"})
                 self.assertEqual(login.status_code, 302)
                 self.assertEqual(urlsplit(login.location).path, "/tracker")
             own = self.client.get("/tracker")
@@ -94,7 +97,7 @@ class MainMergeTests(unittest.TestCase):
             with self.subTest(route=route):
                 self.assertEqual(self.client.get(route).status_code, 200)
 
-    def test_registration_validation_and_in_memory_storage_preserved(self):
+    def test_registration_validation_and_persistent_storage(self):
         self.assertEqual(self.client.post("/register", data={}).status_code, 400)
         form = {
             "name": "Synthetic Merge User",
@@ -112,7 +115,8 @@ class MainMergeTests(unittest.TestCase):
         self.assertNotEqual(user.password_hash, form["password"])
         self.assertTrue(check_password_hash(user.password_hash, form["password"]))
         self.assertEqual(self.client.post("/register", data=form).status_code, 400)
-        self.assertIs(self.auth.get_user_by_email(form["email"]), user)
+        self.assertEqual(self.auth.get_user_by_email(form["email"]).user_id, user.user_id)
+        self.assertEqual(len(self.database.rows), 1)
 
     def test_db_check_remains_registered(self):
         self.assertIn("db-check", self.module.app.cli.commands)

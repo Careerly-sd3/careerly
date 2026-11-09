@@ -168,7 +168,9 @@ class DatabaseTests(unittest.TestCase):
 
     def test_application_import_and_existing_routes_do_not_connect(self):
         # Main loads dotenv on import; never read private files in mocked tests.
-        with patch("dotenv.load_dotenv", return_value=False):
+        with patch("dotenv.load_dotenv", return_value=False), patch.dict(
+            os.environ, SECRET_KEY="unit-test-only-session-key"
+        ):
             module = importlib.import_module("app")
         auth = importlib.import_module("services.auth_service")
         user = auth.User(

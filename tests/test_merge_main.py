@@ -3,7 +3,8 @@
 import importlib
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from werkzeug.security import check_password_hash
 
@@ -35,17 +36,58 @@ class MainMergeTests(unittest.TestCase):
     def test_tracker_requires_login_and_retains_user_filtering(self):
         response = self.client.get("/tracker")
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.location.endswith("/login"))
-        with self.client.session_transaction() as session:
-            session["user_id"] = 1
-        own = self.client.get("/tracker")
-        self.assertEqual(own.status_code, 200)
-        self.assertIn(b"Qualcomm", own.data)
-        with self.client.session_transaction() as session:
-            session["user_id"] = 2
-        other = self.client.get("/tracker")
-        self.assertEqual(other.status_code, 200)
-        self.assertNotIn(b"Qualcomm", other.data)
+        destination = urlsplit(response.location)
+        self.assertEqual(destination.path, "/login")
+        self.assertEqual(parse_qs(destination.query), {"next": ["/tracker"]})
+        self.assertEqual(destination.query, urlencode({"next": "/tracker"}))
+
+        # Use the real current login flow and distinct synthetic identities.
+        # Tracker now reads MySQL rather than sample data, so mock the data
+        # boundary while retaining the actual owner-filtered SQL and rendering.
+        first_form = {
+            "name": "First Synthetic User", "email": "first@example.invalid",
+            "password": "synthetic-test-password",
+        }
+        second_form = first_form | {"name": "Second Synthetic User", "email": "second@example.invalid"}
+        for form in (first_form, second_form):
+            self.auth.create_user(form)
+        first = self.auth.get_user_by_email(first_form["email"])
+        second = self.auth.get_user_by_email(second_form["email"])
+        self.assertNotEqual(first.id, second.id)
+        tracker_data = importlib.import_module("tracker_data")
+        row = {
+            "application_id": 501, "company": "Qualcomm", "job_title": "Synthetic role",
+            "status": "Applied", "applied_at": None, "closing_date": None,
+        }
+        with patch("tracker_data.get_db") as database:
+            cursor = database.return_value.cursor.return_value
+
+            def execute(query, parameters):
+                self.assertIn("WHERE a.user_id = %s", query)
+                self.assertIn(parameters, [(first.id,), (second.id,)])
+                self.assertIn(query, [tracker_data.APPLICATIONS_QUERY, tracker_data.INTERVIEWS_QUERY])
+                cursor.fetchall.return_value = (
+                    [row] if query == tracker_data.APPLICATIONS_QUERY and parameters == (first.id,) else []
+                )
+
+            cursor.execute.side_effect = execute
+            other_client = self.module.app.test_client()
+            for client, form in [(self.client, first_form), (other_client, second_form)]:
+                login = client.post("/login", data=form)
+                self.assertEqual(login.status_code, 302)
+                self.assertEqual(urlsplit(login.location).path, "/tracker")
+            own = self.client.get("/tracker")
+            self.assertEqual(own.status_code, 200)
+            self.assertIn(b"Qualcomm", own.data)
+            other = other_client.get("/tracker")
+            self.assertEqual(other.status_code, 200)
+            self.assertNotIn(b"Qualcomm", other.data)
+            self.assertEqual(cursor.execute.call_args_list, [
+                call(tracker_data.APPLICATIONS_QUERY, (first.id,)),
+                call(tracker_data.INTERVIEWS_QUERY, (first.id,)),
+                call(tracker_data.APPLICATIONS_QUERY, (second.id,)),
+                call(tracker_data.INTERVIEWS_QUERY, (second.id,)),
+            ])
 
     def test_registration_and_login_pages_render(self):
         for route in ("/register", "/login"):
@@ -63,9 +105,14 @@ class MainMergeTests(unittest.TestCase):
         response = self.client.post("/register", data=form)
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.location.endswith("/login"))
-        user = self.auth._users[form["email"]]
-        self.assertTrue(check_password_hash(user["password_hash"], form["password"]))
+        user = self.auth.get_user_by_email(form["email"])
+        self.assertIsNotNone(user)
+        self.assertEqual(user.name, form["name"])
+        self.assertEqual(user.email, form["email"])
+        self.assertNotEqual(user.password_hash, form["password"])
+        self.assertTrue(check_password_hash(user.password_hash, form["password"]))
         self.assertEqual(self.client.post("/register", data=form).status_code, 400)
+        self.assertIs(self.auth.get_user_by_email(form["email"]), user)
 
     def test_db_check_remains_registered(self):
         self.assertIn("db-check", self.module.app.cli.commands)

@@ -237,3 +237,6 @@ backups/
 # Ignore SQL dumps while retaining versioned schema migrations.
 *.sql
 !database/migrations/*.sql
+
+#Database certificate
+.certs/*

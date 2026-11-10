@@ -1,18 +1,18 @@
 import os
 
-from db import DatabaseError, init_app
-
 from dotenv import load_dotenv
 from flask import Flask, flash, redirect, render_template, request, url_for
 from flask_login import LoginManager, current_user, login_required, login_user
 
+from db import DatabaseError, init_app
 from services.auth_service import (
+    EmailAlreadyExists,
     authenticate,
     create_user,
+    current_user_id,
     get_user_by_id,
     validate_login,
     validate_registration,
-    current_user_id
 )
 from tracker_data import (
     PRACTICE_QUESTIONS,
@@ -70,11 +70,18 @@ def tracker():
     company = request.args.get("company", "")
     role = request.args.get("role", "")
     try:
-        page = load_tracker_page(current_user_id(), status=status, company=company, role=role)
+        page = load_tracker_page(
+            current_user_id(), status=status, company=company, role=role
+        )
     except DatabaseError as error:
         flash(str(error), "danger")
-        page = {"applications": [], "interviews": [], "practice_meta": "",
-                "status_counts": {}, "total_applications": 0}
+        page = {
+            "applications": [],
+            "interviews": [],
+            "practice_meta": "",
+            "status_counts": {},
+            "total_applications": 0,
+        }
         status_code = 503
     return render_template(
         "tracker.html",
@@ -102,7 +109,15 @@ def register():
             }
             return render_template("register.html", errors=errors, form=form), 400
 
-        create_user(request.form)
+        try:
+            create_user(request.form)
+        except EmailAlreadyExists:
+            errors = {"email": "An account with this email already exists."}
+            form = {
+                "name": request.form.get("name", ""),
+                "email": request.form.get("email", ""),
+            }
+            return render_template("register.html", errors=errors, form=form), 400
         flash("Account created. Please log in.", "success")
         return redirect(url_for("login"))
 
@@ -145,3 +160,8 @@ def login():
         return redirect(safe_next_url(request.args.get("next")) or url_for("tracker"))
 
     return render_template("login.html", errors={}, form={})
+
+@app.errorhandler(DatabaseError)
+def database_unavailable(error):
+    flash(str(error), "danger")
+    return render_template("index.html"), 503

@@ -39,7 +39,7 @@
             {% if current_user.is_authenticated %}
             <button class="btn-solid btn-styled theme-inverse" data-bs-toggle="menu">
                 <i class="bi bi-person-fill"></i>
-                Danyil
+                {{ current_user.name }}
             </button>
             <div class="menu" data-bs-theme="light">
                 <a class="menu-item" href="#">

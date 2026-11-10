@@ -1,13 +1,17 @@
-"""CAR-86 data access only; no routes or authentication are wired here.
+"""Owner-scoped interview data access using the shared verified connection.
 
-Callers must supply a trusted, persisted User.user_id, never a posted identity
-or the current temporary in-memory authentication ID. NotFound maps to 404.
+Callers must supply a trusted, persisted User.user_id from Flask-Login,
+never a submitted identity. NotFound maps to 404.
 
 Reads return dictionaries (lists for listing), with every Interview column,
 job_title and company. Legacy NULL outcomes are presented as Pending only.
 scheduled_at is a naive UTC datetime matching MySQL DATETIME (second precision).
 Inputs may be naive UTC or aware datetimes; aware values are converted to UTC.
-Local wall-clock parsing and DST validation belong to the later form layer.
+Local wall-clock parsing and DST validation belong to the form layer.
+
+Reads end only read transactions they started, without committing. A caller's
+already-active transaction is preserved. This lets ownership preflight reads
+complete before a separate, guarded write transaction in the same request.
 
 Writes require an idle, autocommit-disabled db.get_db() connection. An active
 caller transaction (including an earlier transactional read) is refused without
@@ -16,7 +20,7 @@ owns its transaction, closes its cursor, then commits; failures roll back.
 No caller-owned connection is closed here; Flask teardown remains responsible.
 """
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 
 import mysql.connector
@@ -190,12 +194,24 @@ def _write(operation):
         raise
 
 
+@contextmanager
+def _read_cursor():
+    connection = get_db()
+    owns_read = not connection.in_transaction
+    try:
+        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
+            yield cursor
+    finally:
+        if owns_read:
+            connection.rollback()
+
+
 def get_owned_application(user_id, application_id):
     """Return application context for the entry point, or InterviewNotFound."""
     _validate_id(user_id, "user_id")
     _validate_id(application_id, "application_id")
     try:
-        with closing(get_db().cursor(dictionary=True, buffered=True)) as cursor:
+        with _read_cursor() as cursor:
             cursor.execute(APPLICATION_QUERY, (application_id, user_id))
             row = cursor.fetchone()
             if row is None:
@@ -210,7 +226,7 @@ def list_interviews(user_id, *, cutoff=None):
     _validate_id(user_id, "user_id")
     cutoff = _utc(datetime.now(timezone.utc) if cutoff is None else cutoff, "cutoff")
     try:
-        with closing(get_db().cursor(dictionary=True, buffered=True)) as cursor:
+        with _read_cursor() as cursor:
             cursor.execute(LIST_QUERY, (user_id, cutoff, cutoff, cutoff))
             return [_present(row) for row in cursor.fetchall()]
     except mysql.connector.Error:
@@ -222,7 +238,7 @@ def get_interview(user_id, interview_id):
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
     try:
-        with closing(get_db().cursor(dictionary=True, buffered=True)) as cursor:
+        with _read_cursor() as cursor:
             return _owned_interview(cursor, user_id, interview_id)
     except mysql.connector.Error:
         raise DatabaseError("Could not load this interview.") from None

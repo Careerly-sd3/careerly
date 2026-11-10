@@ -1,0 +1,21 @@
+{% extends "template.html" %}
+{% block title %}Delete interview{% endblock %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/interviews.css') }}">
+{% endblock %}
+{% block main %}
+<section class="auth-card interview-confirmation m-auto">
+    <h1>Delete interview?</h1>
+    <p>{{ interview.job_title }} &middot; {{ interview.company }}</p>
+    <p>{{ scheduled_local.strftime('%d %B %Y, %H:%M:%S') }} (Europe/Dublin)</p>
+    <p>{{ interview.interview_type|capitalize }} &middot; {{ interview.outcome }}</p>
+    <p>This permanently removes this interview.</p>
+    {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
+    <form id="delete-interview-form" method="post" action="{{ url_for('delete_interview', interview_id=interview.interview_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn-solid theme-danger">Confirm delete</button>
+        <a class="btn-outline theme-inverse" href="{{ url_for('tracker') }}">Cancel</a>
+    </form>
+</section>
+{% endblock %}

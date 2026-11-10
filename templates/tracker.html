@@ -9,39 +9,16 @@
 <span class="badge badge-subtle theme-{{ status_themes[status] }}">{{ status }}</span>
 {%- endmacro %}
 
-{% macro row_actions(company) -%}
+{% macro row_actions(application) -%}
 <div class="d-flex gap-1">
-    <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Edit {{ company }} application">
+    <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('add_interview', application_id=application.application_id) }}">Add interview</a>
+    <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Edit {{ application.company }} application">
         <i class="bi bi-pencil" aria-hidden="true"></i>
     </button>
-    <button type="button" class="btn btn-subtle btn-icon btn-sm theme-danger" aria-label="Delete {{ company }} application">
+    <button type="button" class="btn btn-subtle btn-icon btn-sm theme-danger" aria-label="Delete {{ application.company }} application">
         <i class="bi bi-trash3-fill" aria-hidden="true"></i>
     </button>
 </div>
-{%- endmacro %}
-
-{% macro interview_card(interview) -%}
-<article class="card" data-bs-theme="light">
-    <div class="card-body">
-        <h3 class="fs-lg fw-bold mb-0">{{ interview.company }}</h3>
-        <p class="fg-3 mb-0">{{ interview.job_title }}</p>
-        <hr>
-        <dl class="d-flex flex-wrap gap-6 mb-0">
-            <div>
-                <dt class="fs-xs fg-3 fw-medium text-uppercase">Date</dt>
-                <dd class="fw-medium mb-0">{{ date_text(interview.scheduled_at) }}</dd>
-            </div>
-            <div>
-                <dt class="fs-xs fg-3 fw-medium text-uppercase">Time</dt>
-                <dd class="fw-medium mb-0">{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</dd>
-            </div>
-            <div>
-                <dt class="fs-xs fg-3 fw-medium text-uppercase">Location</dt>
-                <dd class="fw-medium mb-0">{{ interview.location }}</dd>
-            </div>
-        </dl>
-    </div>
-</article>
 {%- endmacro %}
 
 {% macro empty_state(icon, message, classes='') -%}
@@ -66,27 +43,45 @@
     .filter-head { position: relative; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
     .filter-head select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
     .filter-head:hover, .filter-head:focus-within, .filter-head.is-active { text-decoration: underline; text-underline-offset: 0.25em; }
+    #interviews .table-responsive { overflow-x: auto; max-width: 100%; }
+    #interviews-table { min-width: 52rem; }
+    #interviews-table td, #interviews-table th { vertical-align: top; }
+    #interviews-table details { max-width: 22rem; }
+    .tracker-page, .tracker-page > *, .tracker-page .grid > *,
+    .tracker-page .table-card { min-width: 0; max-width: 100%; }
+    .tracker-page { overflow-wrap: anywhere; }
+    .tracker-page .card, .tracker-page .card-body, .tracker-page .d-flex > * { min-width: 0; max-width: 100%; }
+    .tracker-page .table-responsive { min-width: 0; max-width: 100%; overflow-x: auto; }
+    .tracker-page th, .tracker-page td { overflow-wrap: anywhere; }
+    #applications-table { min-width: 48rem; }
+    .tracker-summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .tracker-statuses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+    .tracker-summary > *, .tracker-statuses > * { min-width: 0; overflow-wrap: anywhere; }
+    @media (min-width: 768px) {
+        .tracker-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); }
+        .tracker-statuses { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
     @supports not selector(::-webkit-scrollbar) {
         .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
     }
 </style>
 
-<section class="d-flex flex-column gap-6">
+<section class="tracker-page d-flex flex-column gap-6">
 
     {# Title, status counts and the Add button #}
-    <div class="grid align-items-center">
-        <h1 class="g-col-12 md:g-col-3 fs-2xl fw-bold mb-0">Job Applications</h1>
+    <div class="tracker-summary align-items-center">
+        <h1 class="fs-2xl fw-bold mb-0">Job Applications</h1>
 
-        <ul class="g-col-12 md:g-col-6 grid gap-2 list-unstyled mb-0" data-bs-theme="light">
+        <ul class="tracker-statuses list-unstyled mb-0" data-bs-theme="light">
             {% for status, count in status_counts.items() %}
-            <li class="g-col-3 theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
+            <li class="theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
                 <div class="fw-semibold">{{ count }}</div>
                 <div class="fs-sm">{{ status }}</div>
             </li>
             {% endfor %}
         </ul>
 
-        <div class="g-col-12 md:g-col-3">
+        <div>
             <button type="button" class="btn btn-solid btn-lg theme-success w-100">+ Add Application</button>
         </div>
     </div>
@@ -112,8 +107,8 @@
 
         {# Applications table: about 5 rows tall, then it scrolls #}
         <div class="table-card mb-0" data-bs-theme="light">
-            <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem">
-                <table class="table table-hover md:table-stacked">
+            <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem" role="region" aria-label="Applications table" tabindex="0">
+                <table id="applications-table" class="table table-hover">
                     <thead class="sticky-top">
                         <tr>
                             <th scope="col">{{ filter_heading('company', 'Company', 'All companies', company_options, company) }}</th>
@@ -135,7 +130,7 @@
                                 {{ application.next_step }}
                                 {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
                             </td>
-                            <td data-cell="Actions">{{ row_actions(application.company) }}</td>
+                            <td data-cell="Actions">{{ row_actions(application) }}</td>
                         </tr>
                         {% else %}
                         <tr>
@@ -148,24 +143,44 @@
         </div>
     </form>
     {% else %}
-    {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet.") }}
+    {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet. Interviews are added from an existing application.") }}
     {% endif %}
 
-    {# Upcoming interviews (left) next to the practice card (right) #}
-    <h2 class="fs-xl fw-bold mb-0">Upcoming interviews</h2>
-    <div class="grid">
-
-        {# The first interview cards #}
-        {% if interviews %}
-        <div class="g-col-12 md:g-col-6 d-flex flex-column gap-4">
-            {% for interview in interviews[:visible_interviews] %}
-            {{ interview_card(interview) }}
-            {% endfor %}
+    <section id="interviews" aria-labelledby="interviews-heading">
+        <h2 id="interviews-heading" class="fs-xl fw-bold mb-2">Interviews</h2>
+        <p id="interviews-help">Europe/Dublin date and time. Upcoming interviews first, then most recent past interviews.</p>
+        <div class="table-card" data-bs-theme="light">
+            <div class="table-responsive visible-scroll" role="region" aria-label="Interviews table" tabindex="0">
+                <table id="interviews-table" class="table table-hover" aria-describedby="interviews-help">
+                    <caption class="visually-hidden">Your interviews in scheduled order</caption>
+                    <thead><tr>
+                        <th scope="col">Application / company</th><th scope="col">Date / time (Europe/Dublin)</th>
+                        <th scope="col">Type</th><th scope="col">Venue / link</th><th scope="col">Outcome</th>
+                        <th scope="col">Notes</th><th scope="col">Actions</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for interview in interviews %}
+                        <tr data-interview-id="{{ interview.interview_id }}" data-application-id="{{ interview.application_id }}">
+                            <th scope="row">{{ interview.job_title }}<div class="fs-sm">{{ interview.company }}</div></th>
+                            <td data-cell="Date / time (Europe/Dublin)">{{ date_text(interview.scheduled_at) }}<div>{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</div></td>
+                            <td data-cell="Type">{{ interview.interview_type|capitalize }}</td>
+                            <td data-cell="Venue / link" style="overflow-wrap: anywhere">{% if interview.location_url %}<a href="{{ interview.location_url }}">{{ interview.location }}</a>{% else %}{{ interview.location }}{% endif %}</td>
+                            <td data-cell="Outcome">{{ interview.outcome }}</td>
+                            <td data-cell="Notes">{% if interview.notes %}<details><summary>View notes</summary><p style="white-space: pre-wrap; overflow-wrap: anywhere">{{ interview.notes }}</p></details>{% else %}No notes{% endif %}</td>
+                            <td data-cell="Actions"><div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('edit_interview', interview_id=interview.interview_id) }}">Edit interview</a>
+                                <a class="btn btn-subtle btn-sm theme-danger" href="{{ url_for('delete_interview', interview_id=interview.interview_id) }}">Delete interview</a>
+                            </div></td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="7" class="text-center py-4">No interviews scheduled yet. Add an interview from an owned application.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
-        {% else %}
-        {{ empty_state('bi-person-video3', 'No interviews scheduled yet.', 'g-col-12 md:g-col-6') }}
-        {% endif %}
-
+    </section>
+    <div class="grid">
         {# Practice card: as tall as the cards beside it. The question list slides open inside it. #}
         {% if practice_questions %}
         <article id="practice" class="card g-col-12 md:g-col-6 order-1 md:order-0" style="min-height: 18rem"
@@ -207,23 +222,6 @@
         {{ empty_state('bi-chat-square-text', 'No practice questions yet.', 'g-col-12 md:g-col-6') }}
         {% endif %}
 
-        {# The rest of the interview cards, hidden until "Show more" is pressed #}
-        {% if interviews|length > visible_interviews %}
-        <div class="g-col-12 md:g-col-6 d-flex flex-column gap-4">
-            <div id="more-interviews" class="collapse" data-toggle-state>
-                <div class="d-flex flex-column gap-4">
-                    {% for interview in interviews[visible_interviews:] %}
-                    {{ interview_card(interview) }}
-                    {% endfor %}
-                </div>
-            </div>
-            <button type="button" class="btn btn-outline theme-inverse w-100" data-bs-toggle="collapse"
-                data-bs-target="#more-interviews" aria-expanded="false" aria-controls="more-interviews"
-                data-label-closed="Show more" data-label-open="Show less">
-                <span data-label>Show more</span> <i class="bi bi-chevron-down" aria-hidden="true"></i>
-            </button>
-        </div>
-        {% endif %}
     </div>
 </section>
 

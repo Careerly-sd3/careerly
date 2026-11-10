@@ -2,10 +2,13 @@
 
 from collections import Counter
 import logging
+from urllib.parse import urlsplit
 
 import mysql.connector
 
 from db import DatabaseError, get_db
+from services.interview_service import list_interviews
+from services.interview_time import utc_to_dublin
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +25,6 @@ STATUS_THEMES = {
 # Statuses shown as count tiles at the top of the page.
 SUMMARY_STATUSES = ("Applied", "Interview", "Offer", "Rejected")
 
-# How many interview cards show before the "Show more" button.
-VISIBLE_INTERVIEWS = 2
-
 # Shown where an interview has no venue or link.
 NO_LOCATION = "—"
 
@@ -35,15 +35,6 @@ APPLICATIONS_QUERY = """
     JOIN `Company` c ON c.company_id = a.company_id
     WHERE a.user_id = %s
     ORDER BY a.application_id
-"""
-
-INTERVIEWS_QUERY = """
-    SELECT i.application_id, c.name AS company, a.job_title, i.scheduled_at, i.venue_or_link AS location
-    FROM `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    JOIN `Company` c ON c.company_id = a.company_id
-    WHERE a.user_id = %s
-    ORDER BY i.scheduled_at
 """
 
 # Generic practice questions, the same for everyone. Personalised ones are planned
@@ -72,7 +63,7 @@ def _fetch_all(query, user_id):
         finally:
             cursor.close()
     except mysql.connector.Error:
-        logger.exception("Tracker query failed for user %s", user_id)
+        logger.warning("Tracker query failed.")
         raise DatabaseError("Could not load your tracker data. Please try again later.") from None
 
 
@@ -90,7 +81,7 @@ def _next_step(application, interviews):
             for interview in interviews
             if interview["application_id"] == application["application_id"]
         ]
-        return ("Interview", min(times).date() if times else None)
+        return ("Interview", utc_to_dublin(min(times)).date() if times else None)
     if status == "Offer":
         return ("Decision pending", None)
     return ("Closed", None)
@@ -101,6 +92,7 @@ def _application_rows(applications, interviews):
     for application in applications:
         next_step, next_date = _next_step(application, interviews)
         rows.append({
+            "application_id": application["application_id"],
             "company": application["company"],
             "job_title": application["job_title"],
             "applied_at": application["applied_at"],
@@ -111,16 +103,30 @@ def _application_rows(applications, interviews):
     return rows
 
 
-def _interview_cards(interviews):
-    """Interview cards, soonest first."""
+def _location_url(value):
+    """Allow only absolute HTTP(S) URLs; malformed/other venues stay text."""
+    if not value or any(character.isspace() or ord(character) < 32 for character in value) or "\\" in value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() in ("http", "https") and parsed.hostname and parsed.port != 0:
+            return value
+    except ValueError:
+        pass
+    return None
+
+
+def _interview_rows(interviews):
+    """Keep the service's UTC ordering/IDs; convert only display datetimes."""
     return [
         {
-            "company": interview["company"],
-            "job_title": interview["job_title"],
-            "scheduled_at": interview["scheduled_at"],
-            "location": interview["location"] or NO_LOCATION,
+            **interview,
+            "scheduled_at_utc": interview["scheduled_at"],
+            "scheduled_at": utc_to_dublin(interview["scheduled_at"]),
+            "location": interview["venue_or_link"] or NO_LOCATION,
+            "location_url": _location_url(interview["venue_or_link"]),
         }
-        for interview in sorted(interviews, key=lambda item: item["scheduled_at"])
+        for interview in interviews
     ]
 
 
@@ -160,8 +166,8 @@ def load_tracker_page(user_id, status="", company="", role=""):
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
-    interviews = _fetch_all(INTERVIEWS_QUERY, user_id)
-    cards = _interview_cards(interviews)
+    interviews = list_interviews(user_id)
+    cards = _interview_rows(interviews)
     rows = _application_rows(applications, interviews)
     return {
         "applications": _filter_rows(rows, status, company, role),

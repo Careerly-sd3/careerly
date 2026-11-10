@@ -1,14 +1,14 @@
 {% extends "template.html" %}
 {#
-CAR-87 presentation only. No application route currently renders this template.
-Context for future routes:
+CAR-87/CAR-88/CAR-89 shared application-linked create and edit form.
+Context for routes:
   mode: create (default) or edit
   application: trusted, owner-scoped job_title/company display context
   form: local Europe/Dublin strings keyed by date, time, interview_type,
         venue_or_link, notes, outcome; POST values take precedence over prefill
   errors: field -> message, optionally scheduled_at for the combined datetime
   action_url / cancel_url: trusted URLs built by the route, not posted values
-  csrf_token: token string or the project's future callable token provider
+  csrf_token: token string or the services/csrf.py callable token provider
 No CSRF generator/validator is implemented here. Save stays disabled until a
 trusted action URL and token are supplied. Routes must still verify CSRF and
 ownership and convert Dublin wall-clock input to UTC before calling the service.
@@ -69,7 +69,7 @@ ownership and convert Dublin wall-clock input to UTC before calling the service.
 
         <div class="auth-field">
             <label for="interview-time">Time (Europe/Dublin) <span class="fs-sm">(required)</span></label>
-            <input id="interview-time" name="time" type="time" value="{{ form.get('time', '') }}" required
+            <input id="interview-time" name="time" type="time" step="1" value="{{ form.get('time', '') }}" required
                 {{ error_attributes('time', 'interview-timezone-help' ~ (' interview-scheduled_at-error' if errors.get('scheduled_at') else '')) }}
                 {% if errors.get('scheduled_at') and not errors.get('time') %}aria-invalid="true"{% endif %}>
             {{ error_message('time') }}

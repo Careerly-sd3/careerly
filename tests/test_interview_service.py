@@ -61,7 +61,7 @@ class InterviewServiceTests(unittest.TestCase):
         self.cursor.execute.assert_called_once_with(service.APPLICATION_QUERY, (11, 7))
         self.assertIn("a.application_id = %s AND a.user_id = %s", service.APPLICATION_QUERY)
         self.connection.commit.assert_not_called()
-        self.connection.rollback.assert_not_called()
+        self.connection.rollback.assert_called_once_with()
         self.cursor.close.assert_called_once()
 
     def test_get_interview_has_all_columns_and_presents_null_without_mutation(self):
@@ -83,7 +83,7 @@ class InterviewServiceTests(unittest.TestCase):
                     self.assertEqual(str(error.exception), "Resource not found.")
                     self.assertEqual(self.cursor.execute.call_args.args[1], (resource_id, 8))
         self.connection.commit.assert_not_called()
-        self.connection.rollback.assert_not_called()
+        self.assertEqual(self.connection.rollback.call_count, 4)
 
     def test_listing_keeps_database_order_and_one_utc_cutoff(self):
         # Database-supplied order: cutoff inclusive; upcoming ties by ID;
@@ -307,6 +307,26 @@ class InterviewServiceTests(unittest.TestCase):
         self.connection.commit.assert_not_called()
         self.connection.rollback.assert_not_called()
         self.cursor.close.assert_called_once()
+
+    def test_successful_ownership_read_preserves_active_caller_transaction(self):
+        self.connection.in_transaction = True
+        self.cursor.fetchone.return_value = self.application
+        self.assertEqual(service.get_owned_application(7, 11), self.application)
+        self.connection.rollback.assert_not_called()
+        self.connection.commit.assert_not_called()
+        with self.assertRaises(service.InterviewTransactionError):
+            service.create_interview(7, 11, **self.input)
+        self.connection.rollback.assert_not_called()
+        self.connection.commit.assert_not_called()
+        self.connection.start_transaction.assert_not_called()
+
+    def test_ownership_read_cleanup_failure_is_sanitised(self):
+        self.cursor.fetchone.return_value = self.application
+        self.connection.rollback.side_effect = mysql.connector.Error('private cleanup detail')
+        with self.assertRaises(DatabaseError) as error:
+            service.get_owned_application(7, 11)
+        self.assertNotIn('private', str(error.exception))
+        self.connection.commit.assert_not_called()
 
     def test_interruption_rolls_back(self):
         self.cursor.execute.side_effect = KeyboardInterrupt()

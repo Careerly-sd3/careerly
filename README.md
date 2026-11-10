@@ -45,7 +45,10 @@ See the proposed [database design](docs/database/database-design.md) for CAR-2.
 Use `SECRET_KEY` and the six `MYSQL_*` settings in `.env.example`; there is no
 separate `DB_*` configuration or ORM engine. See [MySQL setup](docs/database/mysql-setup.md).
 Registration, login and Flask-Login user loading use the existing MySQL `User`
-table through `db.get_db()`. Authentication persistence has local mocked coverage;
-real hosted authentication has not been runtime-tested as part of this integration.
-Interview service/form foundations remain unwired; no interview mutation routes
-are exposed. Do not rerun migration 001 or create tables on application startup.
+table through `db.get_db()`. Authentication has local mocked coverage. User-reported interview browser results
+are linked below; comprehensive hosted authentication testing is not claimed.
+Owned applications now open the reusable Add interview form and save through the
+owner-scoped service. Interview editing, outcomes and confirmed deletion use the
+same ownership and CSRF protections. User-reported browser checks and remaining verification limits are recorded below. See
+[interview flow and manual checks](docs/interviews/add-interview.md).
+Do not rerun migration 001 or create tables on application startup.

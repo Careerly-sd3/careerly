@@ -3,7 +3,7 @@
 import importlib
 import os
 import unittest
-from unittest.mock import call, patch
+from unittest.mock import ANY, call, patch
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from werkzeug.security import check_password_hash
@@ -62,13 +62,16 @@ class MainMergeTests(unittest.TestCase):
             "application_id": 501, "company": "Qualcomm", "job_title": "Synthetic role",
             "status": "Applied", "applied_at": None, "closing_date": None,
         }
-        with patch("tracker_data.get_db") as database:
+        from services import interview_service
+        with patch("tracker_data.get_db") as database, patch("services.interview_service.get_db", return_value=database.return_value):
+            database.return_value.in_transaction = False
             cursor = database.return_value.cursor.return_value
 
             def execute(query, parameters):
                 self.assertIn("WHERE a.user_id = %s", query)
-                self.assertIn(parameters, [(first.id,), (second.id,)])
-                self.assertIn(query, [tracker_data.APPLICATIONS_QUERY, tracker_data.INTERVIEWS_QUERY])
+                self.assertIn(parameters[0], [first.id, second.id])
+                self.assertIn(len(parameters), [1, 4])
+                self.assertIn(query, [tracker_data.APPLICATIONS_QUERY, interview_service.LIST_QUERY])
                 cursor.fetchall.return_value = (
                     [row] if query == tracker_data.APPLICATIONS_QUERY and parameters == (first.id,) else []
                 )
@@ -87,9 +90,9 @@ class MainMergeTests(unittest.TestCase):
             self.assertNotIn(b"Qualcomm", other.data)
             self.assertEqual(cursor.execute.call_args_list, [
                 call(tracker_data.APPLICATIONS_QUERY, (first.id,)),
-                call(tracker_data.INTERVIEWS_QUERY, (first.id,)),
+                call(interview_service.LIST_QUERY, (first.id, ANY, ANY, ANY)),
                 call(tracker_data.APPLICATIONS_QUERY, (second.id,)),
-                call(tracker_data.INTERVIEWS_QUERY, (second.id,)),
+                call(interview_service.LIST_QUERY, (second.id, ANY, ANY, ANY)),
             ])
 
     def test_registration_and_login_pages_render(self):

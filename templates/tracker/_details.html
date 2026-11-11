@@ -1,0 +1,130 @@
+{#
+CAR-63: the panels that open under an application row on the tracker.
+  details_row(application)  one hidden <tr> holding four panels: Details, Notes, Interviews, History
+  notes_form(application)   the empty <form> the Notes editor posts to; render it OUTSIDE the
+                            tracker's GET filter form (forms cannot nest), the fields join it with form="..."
+Everything is view only except the notes, which tracker.js saves in place.
+All text is auto-escaped; links are only ever the http(s) URLs tracker_data has already checked.
+#}
+
+{% macro date_text(value) %}{{ value.strftime('%b %d, %Y') }}{% endmacro %}
+
+{% set outcome_themes = {'Pending': 'secondary', 'Passed': 'success', 'Failed': 'danger'} %}
+
+{% macro external_link(url, text) -%}
+<a href="{{ url }}" target="_blank" rel="noopener noreferrer" title="{{ url }}">{{ text }}</a>
+{%- endmacro %}
+
+{# One panel: a titled section; the title is what screen readers announce for it. #}
+{% macro panel(application, name, title, icon) -%}
+<section class="details-panel details-panel-{{ name }}" aria-labelledby="details-{{ application.application_id }}-{{ name }}">
+    <h3 id="details-{{ application.application_id }}-{{ name }}" class="details-panel-title"><i class="bi {{ icon }}" aria-hidden="true"></i>{{ title }}</h3>
+    {{ caller() }}
+</section>
+{%- endmacro %}
+
+{% macro details_panel(application) -%}
+{% call panel(application, 'details', 'Details', 'bi-info-circle') %}
+{% if application.facts or application.links or application.updated_text %}
+<dl class="details-facts">
+    {% for fact in application.facts %}
+    <div><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div>
+    {% endfor %}
+    {% for link in application.links %}
+    <div><dt>{{ link.label }}</dt><dd>{% if link.url %}{{ external_link(link.url, link.text) }}{% else %}{{ link.text }}{% endif %}</dd></div>
+    {% endfor %}
+    {% if application.updated_text %}
+    <div><dt>Last updated</dt><dd data-updated-text>{{ application.updated_text }}</dd></div>
+    {% endif %}
+</dl>
+{% else %}
+<p class="details-muted">No extra details saved yet.</p>
+{% endif %}
+{% endcall %}
+{%- endmacro %}
+
+{# Notes: read view with an Edit button; the editor swaps in place (tracker.js). #}
+{% macro notes_panel(application) -%}
+{% set id = application.application_id %}
+{% call panel(application, 'notes', 'Notes', 'bi-journal-text') %}
+<div class="notes-view" data-notes-view>
+    <p class="notes-text" data-notes-text{% if not application.notes %} hidden{% endif %}>{{ application.notes }}</p>
+    <p class="details-muted" data-notes-empty{% if application.notes %} hidden{% endif %}>No notes yet.</p>
+    <button type="button" class="btn btn-subtle btn-sm theme-secondary" aria-controls="notes-editor-{{ id }}" aria-expanded="false" data-notes-edit>
+        <i class="bi bi-pencil" aria-hidden="true"></i> Edit notes
+    </button>
+</div>
+<div id="notes-editor-{{ id }}" class="notes-editor" data-notes-editor hidden>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" form="notes-form-{{ id }}">
+    <label class="visually-hidden" for="notes-input-{{ id }}">Notes for the {{ application.company }} application</label>
+    {# Left empty on purpose: tracker.js copies the saved notes in when Edit is pressed, so each note is sent once. #}
+    <textarea id="notes-input-{{ id }}" class="notes-input" name="notes" form="notes-form-{{ id }}" aria-describedby="notes-error-{{ id }}"></textarea>
+    <p id="notes-error-{{ id }}" class="notes-error" role="alert" data-notes-error hidden></p>
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-solid btn-sm theme-success" form="notes-form-{{ id }}" data-notes-save>Save</button>
+        <button type="button" class="btn btn-subtle btn-sm theme-secondary" data-notes-cancel>Cancel</button>
+    </div>
+</div>
+<p class="details-muted notes-status" role="status" aria-live="polite" data-notes-status></p>
+{% endcall %}
+{%- endmacro %}
+
+{% macro interviews_panel(application) -%}
+{% call panel(application, 'interviews', 'Interviews', 'bi-person-video3') %}
+{% if application.interviews %}
+<ol class="details-list list-unstyled mb-0">
+    {% for interview in application.interviews %}
+    <li class="details-interview{% if interview.is_past %} is-past{% endif %}">
+        <div class="d-flex justify-content-between align-items-baseline gap-2">
+            <time class="fw-medium" datetime="{{ interview.scheduled_at.isoformat() }}">{{ date_text(interview.scheduled_at) }}, {{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</time>
+            <span class="badge badge-subtle theme-{{ outcome_themes.get(interview.outcome, 'secondary') }}">{{ interview.outcome }}</span>
+        </div>
+        <div class="details-muted">
+            {{ interview.interview_type|capitalize }}
+            {%- if interview.venue_or_link %} · {% if interview.location_url %}{{ external_link(interview.location_url, interview.location_label) }}{% else %}{{ interview.location_label }}{% endif %}{% endif %}
+        </div>
+        {% if interview.notes %}<p class="details-note">{{ interview.notes }}</p>{% endif %}
+    </li>
+    {% endfor %}
+</ol>
+{% else %}
+<p class="details-muted">No interviews yet.</p>
+{% endif %}
+{% endcall %}
+{%- endmacro %}
+
+{# History: what happened and when, oldest first. Filled dot = already happened, hollow = still ahead. #}
+{% macro history_panel(application) -%}
+{% call panel(application, 'history', 'History', 'bi-clock-history') %}
+{% if application.history %}
+<ol class="history-timeline list-unstyled mb-0">
+    {% for event in application.history %}
+    <li class="history-event{% if event.is_future %} is-future{% endif %}">
+        <span class="history-dot" aria-hidden="true"></span>
+        <time class="history-date" datetime="{{ event.date.isoformat() }}">{{ date_text(event.date) }}</time>
+        <span>{{ event.label }}{% if event.detail %} · {{ event.detail }}{% endif %}{% if event.is_upcoming %} <span class="details-muted">(upcoming)</span>{% endif %}</span>
+    </li>
+    {% endfor %}
+</ol>
+{% else %}
+<p class="details-muted">No dates recorded for this application yet.</p>
+{% endif %}
+{% endcall %}
+{%- endmacro %}
+
+{% macro details_row(application) -%}
+<tr id="details-{{ application.application_id }}" class="details-row" hidden>
+    <td colspan="6">
+        <div class="details-grid">
+            {{ details_panel(application) }}
+            {{ notes_panel(application) }}
+            {{ interviews_panel(application) }}
+            {{ history_panel(application) }}
+        </div>
+    </td>
+</tr>
+{%- endmacro %}
+
+{% macro notes_form(application) -%}
+<form id="notes-form-{{ application.application_id }}" method="post" action="{{ url_for('save_application_notes', application_id=application.application_id) }}" data-notes-form></form>
+{%- endmacro %}

@@ -82,6 +82,13 @@ DELETE_QUERY = """
     WHERE i.interview_id = %s AND a.user_id = %s
 """
 
+NOTES_QUERY = """
+    UPDATE `Interview` i
+    JOIN `JobApplication` a ON a.application_id = i.application_id
+    SET i.notes = %s
+    WHERE i.interview_id = %s AND a.user_id = %s
+"""
+
 
 class InterviewNotFound(LookupError):
     """Absent and foreign-owned resources deliberately share one result."""
@@ -121,6 +128,15 @@ def _utc(value, field="scheduled_at"):
     return value.replace(microsecond=0)
 
 
+def _validate_notes(notes):
+    if notes is not None:
+        try:
+            if not isinstance(notes, str) or len(notes.encode("utf-8")) > 65535:
+                raise InterviewValidationError({"notes": "Use text of at most 65535 UTF-8 bytes, or leave it empty."})
+        except UnicodeEncodeError:
+            raise InterviewValidationError({"notes": "Use valid UTF-8 text."}) from None
+
+
 def _values(scheduled_at, interview_type, venue_or_link, notes, outcome):
     scheduled_at = _utc(scheduled_at)
     errors = {}
@@ -135,12 +151,10 @@ def _values(scheduled_at, interview_type, venue_or_link, notes, outcome):
             venue_or_link.encode("utf-8")
         except UnicodeEncodeError:
             errors["venue_or_link"] = "Use valid UTF-8 text."
-    if notes is not None:
-        try:
-            if not isinstance(notes, str) or len(notes.encode("utf-8")) > 65535:
-                errors["notes"] = "Use text of at most 65535 UTF-8 bytes, or leave it empty."
-        except UnicodeEncodeError:
-            errors["notes"] = "Use valid UTF-8 text."
+    try:
+        _validate_notes(notes)
+    except InterviewValidationError as error:
+        errors.update(error.errors)
     if errors:
         raise InterviewValidationError(errors)
     return scheduled_at, interview_type, venue_or_link, notes, outcome
@@ -290,5 +304,20 @@ def delete_interview(user_id, interview_id):
         cursor.execute(DELETE_QUERY, (interview_id, user_id))
         if cursor.rowcount != 1:
             raise InterviewNotFound()
+
+    return _write(operation)
+
+
+def update_interview_notes(user_id, interview_id, *, notes):
+    """Update only notes, preserving whitespace and every other stored column."""
+    _validate_id(user_id, "user_id")
+    _validate_id(interview_id, "interview_id")
+    _validate_notes(notes)
+
+    def operation(cursor):
+        _owned_interview(cursor, user_id, interview_id, lock=True)
+        cursor.execute(NOTES_QUERY, (notes, interview_id, user_id))
+        # Zero changed rows is a successful unchanged save after ownership lock.
+        return _owned_interview(cursor, user_id, interview_id)
 
     return _write(operation)

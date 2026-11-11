@@ -68,7 +68,7 @@ class InterviewDatabase(AuthDatabaseFixture):
             elif query in (service.OWNED_INTERVIEW_QUERY, service.OWNED_INTERVIEW_QUERY + ' FOR UPDATE'):
                 row = self.interviews.get(parameters[0])
                 cursor.fetchone.return_value = deepcopy(row) if row and self.applications[row['application_id']]['user_id'] == parameters[1] else None
-            elif query in (service.UPDATE_QUERY, service.DELETE_QUERY):
+            elif query in (service.UPDATE_QUERY, service.DELETE_QUERY, service.NOTES_QUERY):
                 if self.fail:
                     raise mysql.connector.Error('synthetic internal SQL/password details')
                 identity, owner = parameters[-2:]
@@ -78,6 +78,9 @@ class InterviewDatabase(AuthDatabaseFixture):
                 elif query == service.DELETE_QUERY:
                     del self.interviews[identity]
                     cursor.rowcount = 1
+                elif query == service.NOTES_QUERY:
+                    cursor.rowcount = int(row['notes'] != parameters[0])
+                    row['notes'] = parameters[0]
                 else:
                     fields = ('scheduled_at', 'interview_type', 'venue_or_link', 'notes', 'outcome')
                     values = dict(zip(fields, parameters[:-2]))
@@ -141,7 +144,7 @@ class AddInterviewTests(unittest.TestCase):
         self.assertIn(b'Europe/Dublin', response.data)
         response = self.client.post(self.url, data=self.form | {'user_id': '102', 'application_id': '502', 'interview_id': '999'})
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.location.endswith('/tracker'))
+        self.assertTrue(response.location.endswith('/interviews'))
         row = self.database.interviews[901]
         self.assertEqual(row['application_id'], 501)
         self.assertEqual(row['scheduled_at'], datetime(2026, 7, 9, 13, 30))
@@ -149,14 +152,17 @@ class AddInterviewTests(unittest.TestCase):
         self.database.connection.start_transaction.assert_called_once()
         self.database.connection.commit.assert_called_once()
         self.assertFalse(self.database.connection.in_transaction)
-        response = self.client.get('/tracker')
+        response = self.client.get('/interviews')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'Interview added.', response.data)
         self.assertIn(b'2:30 PM', response.data)
         self.assertIn(b'data-interview-id="901"', response.data)
-        self.assertIn(self.url.encode(), response.data)
-        self.assertNotIn(b'Other role', response.data)
         self.assertEqual(sum(q == service.LIST_QUERY for q, _ in self.database.queries), 1)
+        tracker_response = self.client.get('/tracker')
+        self.assertNotIn(b'id="interviews-table"', tracker_response.data)
+        self.assertIn(self.url.encode(), tracker_response.data)
+        self.assertNotIn(b'Other role', response.data)
+        self.assertEqual(sum(q == service.LIST_QUERY for q, _ in self.database.queries), 2)
         self.assertEqual(self.database.applications[501]['status'], 'Applied')
 
     def test_invalid_fields_preserved_and_no_write(self):
@@ -232,7 +238,7 @@ class AddInterviewTests(unittest.TestCase):
         response = self.client.post(self.url, data=self.form | {'date': '2020-01-01', 'notes': '<script>synthetic</script>',
             'venue_or_link': 'javascript:alert("synthetic")', 'outcome': 'Passed'})
         self.assertEqual(response.status_code, 302)
-        response = self.client.get('/tracker')
+        response = self.client.get('/interviews')
         self.assertIn(b'&lt;script&gt;synthetic&lt;/script&gt;', response.data)
         self.assertNotIn(b'href="javascript:', response.data)
         self.assertIn(b'Passed', response.data)

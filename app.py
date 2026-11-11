@@ -24,6 +24,7 @@ from tracker_data import (
     PRACTICE_QUESTIONS,
     STATUS_THEMES,
     load_tracker_page,
+    load_interviews_page,
 )
 
 load_dotenv()
@@ -191,10 +192,10 @@ def add_interview(application_id):
             return show_form(error.errors, 400, application)
         except DatabaseError:
             return show_form({"_form": (
-                "Could not save the interview. Check your tracker before retrying."
+                "Could not save the interview. Check your Interviews page before retrying."
             )}, 503, application)
         flash("Interview added.", "success")
-        return redirect(url_for("tracker"))
+        return redirect(url_for("interviews"))
     return show_form(application=application)
 
 
@@ -221,7 +222,7 @@ def edit_interview(interview_id):
         return render_template("interviews/form.html", mode="edit", application=interview,
                                form=form, errors=errors or {},
                                action_url=url_for("edit_interview", interview_id=interview_id),
-                               cancel_url=url_for("tracker")), status
+                               cancel_url=url_for("interviews")), status
 
     if request.method == "POST":
         try:
@@ -232,9 +233,9 @@ def edit_interview(interview_id):
         except interview_service.InterviewValidationError as error:
             return show_form(error.errors, 400)
         except DatabaseError:
-            return show_form({"_form": "Could not save the interview. Check your tracker before retrying."}, 503)
+            return show_form({"_form": "Could not save the interview. Check your Interviews page before retrying."}, 503)
         flash("Interview updated.", "success")
-        return redirect(url_for("tracker"))
+        return redirect(url_for("interviews"))
     return show_form()
 
 
@@ -251,13 +252,39 @@ def delete_interview(interview_id):
         except interview_service.InterviewNotFound:
             abort(404)
         except DatabaseError:
-            error = "Could not delete the interview. Check your tracker before retrying."
+            error = "Could not delete the interview. Check your Interviews page before retrying."
         else:
             flash("Interview deleted.", "success")
-            return redirect(url_for("tracker"))
+            return redirect(url_for("interviews"))
     return render_template("interviews/delete.html", interview=interview,
                            scheduled_local=utc_to_dublin(interview["scheduled_at"]),
                            error=error), 503 if error else 200
+
+
+@app.post("/interviews/<int:interview_id>/notes")
+@login_required
+@csrf_protect
+def save_interview_notes(interview_id):
+    user_id = current_user_id()
+    try:
+        # Preflight first, so valid-CSRF foreign requests return 404 even if
+        # their input is invalid. The service rechecks under its write lock.
+        interview_service.get_interview(user_id, interview_id)
+    except (interview_service.InterviewNotFound, interview_service.InterviewValidationError):
+        return jsonify(ok=False, message="Interview not found."), 404
+    except DatabaseError:
+        return jsonify(ok=False, message="Could not load the interview. Please try again later."), 503
+    if "notes" not in request.form:
+        return jsonify(ok=False, errors={"notes": "Supply notes, or an empty value to clear them."}), 400
+    try:
+        saved = interview_service.update_interview_notes(user_id, interview_id, notes=request.form["notes"])
+    except interview_service.InterviewNotFound:
+        return jsonify(ok=False, message="Interview not found."), 404
+    except interview_service.InterviewValidationError as error:
+        return jsonify(ok=False, errors=error.errors), 400
+    except DatabaseError:
+        return jsonify(ok=False, message="Could not save notes. Check saved notes before retrying."), 503
+    return jsonify(ok=True, interview_id=saved["interview_id"], notes=saved["notes"])
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -298,7 +325,7 @@ def browse():
 @app.route("/interviews")
 @login_required
 def interviews():
-    return redirect(url_for("tracker", _anchor="interviews"))
+    return render_template("interviews/index.html", **load_interviews_page(current_user_id()))
 
 
 @app.route("/login", methods=["GET", "POST"])

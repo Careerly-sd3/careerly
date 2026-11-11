@@ -242,3 +242,4 @@ backups/
 
 #Database certificate
 .certs/*
+db_check.py

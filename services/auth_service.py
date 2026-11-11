@@ -56,10 +56,6 @@ class User(UserMixin):
     def get_id(self):
         return str(self.user_id)
 
-    @property
-    def user_id(self):
-        return self.id
-
 def _persisted_id(value):
     if type(value) is int:
         return value if 1 <= value <= 2147483647 else None

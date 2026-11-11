@@ -10,7 +10,7 @@
 {%- endmacro %}
 
 {% macro row_actions(application) -%}
-<div class="d-flex gap-1">
+<div class="d-flex flex-wrap gap-1">
     <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('add_interview', application_id=application.application_id) }}">Add interview</a>
     <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Edit {{ application.company }} application">
         <i class="bi bi-pencil" aria-hidden="true"></i>
@@ -32,47 +32,19 @@
 
 {# ---------- Page ---------- #}
 
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}" />
+{% endblock %}
+
 {% block main %}
-<style>
-    /* Always-visible scrollbar so users can see an area scrolls (macOS hides it by default). */
-    .visible-scroll::-webkit-scrollbar { width: 0.75rem; }
-    .visible-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
-    .visible-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border: 3px solid #f3f4f6; border-radius: 999px; }
-    /* A column heading that is also a dropdown: it reads like the other headings, with an arrow after the name.
-       The real <select> sits invisibly on top, so clicking the heading opens the normal dropdown list. */
-    .filter-head { position: relative; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
-    .filter-head select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    .filter-head:hover, .filter-head:focus-within, .filter-head.is-active { text-decoration: underline; text-underline-offset: 0.25em; }
-    #interviews .table-responsive { overflow-x: auto; max-width: 100%; }
-    #interviews-table { min-width: 52rem; }
-    #interviews-table td, #interviews-table th { vertical-align: top; }
-    #interviews-table details { max-width: 22rem; }
-    .tracker-page, .tracker-page > *, .tracker-page .grid > *,
-    .tracker-page .table-card { min-width: 0; max-width: 100%; }
-    .tracker-page { overflow-wrap: anywhere; }
-    .tracker-page .card, .tracker-page .card-body, .tracker-page .d-flex > * { min-width: 0; max-width: 100%; }
-    .tracker-page .table-responsive { min-width: 0; max-width: 100%; overflow-x: auto; }
-    .tracker-page th, .tracker-page td { overflow-wrap: anywhere; }
-    #applications-table { min-width: 48rem; }
-    .tracker-summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-    .tracker-statuses { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
-    .tracker-summary > *, .tracker-statuses > * { min-width: 0; overflow-wrap: anywhere; }
-    @media (min-width: 768px) {
-        .tracker-summary { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr); }
-        .tracker-statuses { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    }
-    @supports not selector(::-webkit-scrollbar) {
-        .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
-    }
-</style>
+<section class="tracker d-flex flex-column gap-6">
 
-<section class="tracker-page d-flex flex-column gap-6">
-
-    {# Title, status counts and the Add button #}
-    <div class="tracker-summary align-items-center">
+    {# Title, Add button and status counts #}
+    <div class="tracker-header">
         <h1 class="fs-2xl fw-bold mb-0">Job Applications</h1>
+        <button type="button" class="btn btn-solid btn-lg theme-success">+ Add Application</button>
 
-        <ul class="tracker-statuses list-unstyled mb-0" data-bs-theme="light">
+        <ul class="status-tiles list-unstyled mb-0" data-bs-theme="light">
             {% for status, count in status_counts.items() %}
             <li class="theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
                 <div class="fw-semibold">{{ count }}</div>
@@ -80,10 +52,6 @@
             </li>
             {% endfor %}
         </ul>
-
-        <div>
-            <button type="button" class="btn btn-solid btn-lg theme-success w-100">+ Add Application</button>
-        </div>
     </div>
 
     {# The table's headings Company, Role and Status are dropdown filters (one GET form, so the address can be bookmarked) #}
@@ -105,10 +73,10 @@
         <div><a href="{{ url_for('tracker') }}" class="fs-sm">Clear filters</a></div>
         {% endif %}
 
-        {# Applications table: about 5 rows tall, then it scrolls #}
-        <div class="table-card mb-0" data-bs-theme="light">
-            <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem" role="region" aria-label="Applications table" tabindex="0">
-                <table id="applications-table" class="table table-hover">
+        {# Applications table: about 5 rows tall, then it scrolls (cards on phones) #}
+        <div class="table-card applications-card mb-0" data-bs-theme="light">
+            <div class="table-responsive applications-scroll visible-scroll overflow-y-auto" role="region" aria-label="Applications table" tabindex="0">
+                <table id="applications-table" class="table table-hover applications-table">
                     <thead class="sticky-top">
                         <tr>
                             <th scope="col">{{ filter_heading('company', 'Company', 'All companies', company_options, company) }}</th>
@@ -122,15 +90,15 @@
                     <tbody>
                         {% for application in applications %}
                         <tr>
-                            <td>{{ application.company }}</td>
-                            <td data-cell="Role">{{ application.job_title }}</td>
-                            <td data-cell="Applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
-                            <td data-cell="Status">{{ status_badge(application.status) }}</td>
-                            <td data-cell="Next Step">
+                            <td data-col="company">{{ application.company }}</td>
+                            <td data-col="role">{{ application.job_title }}</td>
+                            <td data-col="applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
+                            <td data-col="status">{{ status_badge(application.status) }}</td>
+                            <td data-col="next">
                                 {{ application.next_step }}
                                 {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
                             </td>
-                            <td data-cell="Actions">{{ row_actions(application) }}</td>
+                            <td data-col="actions">{{ row_actions(application) }}</td>
                         </tr>
                         {% else %}
                         <tr>
@@ -151,7 +119,7 @@
         <p id="interviews-help">Europe/Dublin date and time. Upcoming interviews first, then most recent past interviews.</p>
         <div class="table-card" data-bs-theme="light">
             <div class="table-responsive visible-scroll" role="region" aria-label="Interviews table" tabindex="0">
-                <table id="interviews-table" class="table table-hover" aria-describedby="interviews-help">
+                <table id="interviews-table" class="table table-hover interviews-table" aria-describedby="interviews-help">
                     <caption class="visually-hidden">Your interviews in scheduled order</caption>
                     <thead><tr>
                         <th scope="col">Application / company</th><th scope="col">Date / time (Europe/Dublin)</th>
@@ -161,13 +129,13 @@
                     <tbody>
                     {% for interview in interviews %}
                         <tr data-interview-id="{{ interview.interview_id }}" data-application-id="{{ interview.application_id }}">
-                            <th scope="row">{{ interview.job_title }}<div class="fs-sm">{{ interview.company }}</div></th>
-                            <td data-cell="Date / time (Europe/Dublin)">{{ date_text(interview.scheduled_at) }}<div>{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</div></td>
-                            <td data-cell="Type">{{ interview.interview_type|capitalize }}</td>
-                            <td data-cell="Venue / link" style="overflow-wrap: anywhere">{% if interview.location_url %}<a href="{{ interview.location_url }}">{{ interview.location }}</a>{% else %}{{ interview.location }}{% endif %}</td>
-                            <td data-cell="Outcome">{{ interview.outcome }}</td>
-                            <td data-cell="Notes">{% if interview.notes %}<details><summary>View notes</summary><p style="white-space: pre-wrap; overflow-wrap: anywhere">{{ interview.notes }}</p></details>{% else %}No notes{% endif %}</td>
-                            <td data-cell="Actions"><div class="d-flex flex-wrap gap-2">
+                            <th scope="row" data-col="application">{{ interview.job_title }}<div class="fs-sm">{{ interview.company }}</div></th>
+                            <td data-col="scheduled" data-label="Date / time (Europe/Dublin)">{{ date_text(interview.scheduled_at) }}<div>{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</div></td>
+                            <td data-col="type" data-label="Type">{{ interview.interview_type|capitalize }}</td>
+                            <td data-col="venue" data-label="Venue / link" style="overflow-wrap: anywhere">{% if interview.location_url %}<a href="{{ interview.location_url }}" rel="noopener noreferrer">{{ interview.location }}</a>{% else %}{{ interview.location }}{% endif %}</td>
+                            <td data-col="outcome" data-label="Outcome">{{ interview.outcome }}</td>
+                            <td data-col="notes" data-label="Notes">{% if interview.notes %}<details><summary>View notes</summary><p style="white-space: pre-wrap; overflow-wrap: anywhere">{{ interview.notes }}</p></details>{% else %}No notes{% endif %}</td>
+                            <td data-col="actions" data-label="Actions"><div class="d-flex flex-wrap gap-2">
                                 <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('edit_interview', interview_id=interview.interview_id) }}">Edit interview</a>
                                 <a class="btn btn-subtle btn-sm theme-danger" href="{{ url_for('delete_interview', interview_id=interview.interview_id) }}">Delete interview</a>
                             </div></td>
@@ -183,7 +151,7 @@
     <div class="grid">
         {# Practice card: as tall as the cards beside it. The question list slides open inside it. #}
         {% if practice_questions %}
-        <article id="practice" class="card g-col-12 md:g-col-6 order-1 md:order-0" style="min-height: 18rem"
+        <article id="practice" class="card practice-card g-col-12" style="min-height: 18rem"
             data-bs-theme="light" data-questions="{{ practice_questions|tojson|forceescape }}">
             <div class="card-body overflow-hidden">
                 <div class="d-flex align-items-center gap-3">

@@ -38,7 +38,7 @@
 
             {% if current_user.is_authenticated %}
             <div class="account-controls d-flex flex-wrap align-items-center gap-3">
-                <span class="d-inline-flex align-items-center gap-2">
+                <span class="account-label d-inline-flex align-items-center gap-2" aria-label="Account for {{ current_user.name }}">
                     <i class="bi bi-person-fill" aria-hidden="true"></i>
                     <span id="account-name">{{ current_user.name }}</span>
                 </span>
@@ -66,6 +66,7 @@
         {% endfor %}
         {% endwith %}
 
+        {% if g.auth_database_unavailable|default(false) %}<div class="alert theme-danger" role="status">Account service is temporarily unavailable. Your session has been preserved.</div>{% endif %}
         {% block main %}{% endblock %}
     </main>
 

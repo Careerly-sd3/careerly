@@ -1,6 +1,7 @@
 """Tracker page data, read from the JobApplication, Company and Interview tables."""
 
 from collections import Counter
+from datetime import datetime, timezone
 import logging
 from urllib.parse import urlsplit
 
@@ -62,8 +63,12 @@ def _fetch_all(query, user_id):
             return cursor.fetchall()
         finally:
             cursor.close()
-    except mysql.connector.Error:
-        logger.warning("Tracker query failed.")
+    except (mysql.connector.Error, DatabaseError) as error:
+        # Connector messages can include usernames, SQL or server-provided text.
+        # Retain the original call stack, but never log that exception's value,
+        # chained exceptions, query parameters or frame locals.
+        safe_error = DatabaseError("Database read failed.")
+        logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
         raise DatabaseError("Could not load your tracker data. Please try again later.") from None
 
 
@@ -130,11 +135,12 @@ def _interview_rows(interviews):
     ]
 
 
-def _practice_meta(cards):
-    """Subtitle for the practice card, from the soonest interview ('' if there is none)."""
-    if not cards:
+def _practice_meta(cards, cutoff):
+    """Use only upcoming UTC interviews, keeping the listing's single cutoff."""
+    upcoming = [card for card in cards if card["scheduled_at_utc"] >= cutoff]
+    if not upcoming:
         return ""
-    soonest = cards[0]
+    soonest = upcoming[0]
     return f"{soonest['job_title']} · {soonest['company']} · {soonest['scheduled_at'].strftime('%A')}"
 
 
@@ -166,7 +172,8 @@ def load_tracker_page(user_id, status="", company="", role=""):
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
-    interviews = list_interviews(user_id)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    interviews = list_interviews(user_id, cutoff=cutoff)
     cards = _interview_rows(interviews)
     rows = _application_rows(applications, interviews)
     return {
@@ -175,6 +182,6 @@ def load_tracker_page(user_id, status="", company="", role=""):
         "company_options": _options(rows, "company"),
         "role_options": _options(rows, "job_title"),
         "interviews": cards,
-        "practice_meta": _practice_meta(cards),
+        "practice_meta": _practice_meta(cards, cutoff),
         "status_counts": _status_counts(applications),
     }

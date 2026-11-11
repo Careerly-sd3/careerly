@@ -134,10 +134,13 @@ footer a {
     transition: 300ms !important;
 }
 
-@media (max-width: 767.98px) {
+@media (width < 768px) {
     body { padding-inline: 1rem !important; }
     #nav-links { flex-basis: 100%; gap: 0.25rem; }
     #nav-links > a { padding-inline: 0.65rem; }
     #nav-links .nav-option-text { width: auto; }
     footer > .d-flex { flex-wrap: wrap; min-width: 0; }
+}
+@media (width < 576px) {
+    main > section { margin-block: 2rem; }
 }

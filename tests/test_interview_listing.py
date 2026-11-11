@@ -39,10 +39,11 @@ class InterviewListingTests(unittest.TestCase):
 
     def test_order_cutoff_single_query_and_rendering(self):
         self.seed()
-        with patch('tracker_data.list_interviews', side_effect=lambda owner: service.list_interviews(
-                owner, cutoff=self.cutoff.replace(tzinfo=timezone.utc))) as listing:
+        with patch('tracker_data.datetime') as clock, patch('tracker_data.list_interviews', wraps=service.list_interviews) as listing:
+            clock.now.return_value = self.cutoff.replace(tzinfo=timezone.utc)
             response = self.client.get('/tracker')
-            listing.assert_called_once_with(101)
+            clock.now.assert_called_once_with(timezone.utc)
+            listing.assert_called_once_with(101, cutoff=self.cutoff)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(InterviewRows(response.get_data(as_text=True)).ids, [3, 2, 4, 8, 9, 7])
         queries = [(query, parameters) for query, parameters in self.database.queries if query == service.LIST_QUERY]

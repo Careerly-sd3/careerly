@@ -1,169 +1,109 @@
-# Interview create, edit, outcomes and deletion (CAR-87 through CAR-91)
+# Interview tracking (CAR-86 through CAR-91)
 
-An authenticated user can open **Add interview** on an owned tracker application.
-`GET/POST /applications/<application_id>/interviews/new` uses persisted Flask-Login
-identity, the shared CSRF helper and `services/interview_service.py`. Posted
-ownership/application IDs are ignored; missing and foreign applications return 404.
-The tracker also links to `/interviews/<interview_id>/edit` and
-`/interviews/<interview_id>/delete`. Both require authentication and scope reads
-and writes to the persisted owner. No application status change or application CRUD
-is added. Edit ignores submitted association/identity fields and cannot reassign
-the application.
+## Implementation and setup
 
-Date/time are Europe/Dublin wall-clock input, converted using `zoneinfo` to naive
-UTC for MySQL DATETIME. `tzdata` supplies timezone rules on Windows. Clock-change
-gaps and repeated times are rejected with explanatory errors; past dates are allowed.
-The tracker uses the service's single owner-filtered interview query and converts
-only interview timestamps for display. Application DATE values remain unchanged.
-Notes are escaped text inside keyboard-accessible expandable details. Venues are
-escaped text; only absolute HTTP/HTTPS URLs become clickable links.
+Use the existing [PowerShell/MySQL setup](../database/mysql-setup.md). Startup
+requires a private, non-empty `SECRET_KEY` plus the six `MYSQL_*` settings; no
+production fallback exists. `requirements.txt` is UTF-8 with unchanged dependency
+pins, including `tzdata` for Windows. Do not rerun migration 001.
 
-Authentication and interview preflight reads roll back only read transactions they
-started. Creation rechecks and locks the owned parent; edit/delete recheck and lock
-the owned interview inside a separate transaction. Each write
-commits on success and rolls back on failure. Active caller work is still refused;
-teardown never commits. A connection/commit failure can leave an uncertain outcome:
-check the tracker before retrying rather than assuming a retry is safe.
+The existing Interview/JobApplication tables and verified `db.get_db()` connection
+are reused. Persisted Flask-Login identity supplies ownership; posted IDs never do.
 
-## Manual browser checks (not performed by automated tests)
+| Route | Behaviour |
+| --- | --- |
+| `/applications/<application_id>/interviews/new` GET/POST | Owned parent, shared form, CSRF-protected creation |
+| `/interviews/<interview_id>/edit` GET/POST | Owned interview, prefill, immutable application, CSRF-protected update |
+| `/interviews/<interview_id>/delete` GET/POST | GET confirmation; Cancel returns unchanged; only CSRF POST deletes |
+| `/tracker`, `/interviews` GET | Authenticated owner-filtered tracker; interview navigation redirects to `#interviews` |
 
-1. Use the existing private local MySQL/TLS configuration and install declared
-   requirements in `.venv`, then start Flask using the existing setup instructions.
-2. Log in as a persisted user with an existing owned application. If no application
-   exists, expect an empty state: the UI cannot create applications yet. A minimal
-   separately authorised development fixture would create a clearly synthetic
-   Company and owned JobApplication using required schema fields, the user's real
-   persisted ID and explicit UTC created/updated timestamps. Record its IDs for
-   later cleanup. Do not use another user's application or invent a session ID.
-   The agent has not inserted a fixture; the user supplied the persisted test application.
-3. Open Add interview, check the application context and Dublin labels. Cancel
-   should return without saving. Save a winter and summer interview, plus a past
-   date; expect a success message and the correct Dublin time on the tracker.
-4. Submit blank/invalid date/time, unsupported choices and a venue over 500
-   characters (bypassing browser validation if necessary). Expect field errors,
-   retained values and no save. Try 29 March 2026 01:30 and 25 October 2026 01:30:
-   both must require a different time. Confirm Pending is the default outcome.
-5. Expand notes and check HTML appears as text. Only HTTP/HTTPS venues should
-   become links; javascript/data URLs and ordinary room names must stay text.
-   Refresh after success: the saved record must persist without duplicate creation.
-6. In a second persisted user's session, request the first application's URL
-   directly with GET and valid-CSRF POST: both must return 404. Tampering with posted
-   user/application IDs must never move the interview to another application.
-   Missing/invalid CSRF must reject POST. Logged-out requests must require login.
-7. Exercise a controlled database outage only in an approved development setup;
-   expect a generic error, retained form values and no internal connection details.
+Missing/foreign resources return 404 with valid CSRF; invalid CSRF returns 400.
+Date/time are required; types are online/phone/technical/onsite; outcomes are
+Pending/Passed/Failed (default Pending). Venue is optional, at most 500 characters;
+notes are optional within MySQL TEXT's UTF-8 byte limit. Errors retain input.
+Legacy NULL outcomes display Pending without rewriting records.
 
-8. Select Edit interview: check every prefilled field, including the local Dublin
-   date/time and Pending/Passed/Failed outcome. Save identical values: it must
-   succeed even when MySQL reports zero changed rows. Change each field and save;
-   verify the result survives refresh and application/status remain unchanged.
-   Test winter/summer UTC round trips, field errors and DST edge times on edit.
-9. Open Delete interview: verify the application/company and local date/time.
-   Cancel must return without removing the record. Reopen and confirm: only the
-   CSRF-protected POST may delete, then redirect with a success message. Refresh
-   must not repeat deletion. GET (including `?confirm=true`) must never delete.
-10. Repeat direct edit/delete GET and valid-CSRF POST requests as the other user:
-    expect 404. Missing/invalid CSRF must reject mutations. Tampered IDs must never
-    change association or select a different record. Check controlled write/commit
-    failures in development: no false success; check the tracker before retrying.
-11. If legacy NULL outcomes already exist, viewing them must display Pending
-    without updating the row. Explicit edits save the selected outcome normally.
+Europe/Dublin wall-clock input converts to UTC DATETIME; gaps and repeated DST
+times require a different time. Past dates are allowed. UTC comparisons use one
+cutoff: upcoming ascending, past descending, interview ID ascending for ties.
+Display conversion preserves order; application DATE fields are never converted.
+The practice subtitle uses only upcoming interviews at that same cutoff.
 
-Local mocked tests cover these request boundaries and shared-connection lifecycle;
-they do not establish hosted persistence or browser behaviour. CAR-89/CAR-90 are
-implemented locally, including CAR-91's responsive interviews table and authenticated
-`/interviews` redirect to `/tracker#interviews`. Some browser checks have user-reported evidence below; remaining checks are
-explicitly pending. The agent has not executed successful styled browser or hosted acceptance tests. The existing service orders upcoming ascending,
-then past descending, with interview ID ties, using one UTC cutoff per listing.
-Display conversion preserves that order. Application filters affect applications
-only; all of the owner's interviews remain listed.
+Reads finish only transactions they started. Writes lock/recheck ownership,
+commit on success and roll back failures; active caller work is refused untouched.
+Unchanged updates succeed with MySQL rowcount zero. Teardown never commits. Check
+the tracker before retrying an uncertain connection/commit failure.
 
-## Acceptance criteria and evidence
+Text is escaped. Only absolute HTTP/HTTPS venues become links, with
+`rel="noopener noreferrer"`. Existing target behaviour is unchanged. The shared
+header preserves the account name and POST/CSRF Logout. Main's tracker.css and
+container queries provide phone cards and wider tables, with labelled actions,
+expandable notes and focusable scroll regions. Application filters affect only
+applications. No application CRUD, schema change or automatic status change is added.
 
-Automated evidence below uses synthetic persisted identities, mocked SQL and
-request connections. It does not prove real MySQL execution or browser behaviour.
-The earlier 136 hosted schema checks do not verify these new Flask flows.
+During account lookup outages, public home/login GETs remain renderable with an
+explicit notice; protected requests return a styled generic 503. The valid session
+is retained for recovery. This is not treated as incorrect credentials. Tracker
+error logs retain a sanitised stack trace without driver messages or parameters.
 
-| Criterion | Implemented behaviour | Automated evidence (mocked) | User-reported browser evidence | Pending manual checks |
-| --- | --- | --- | --- | --- |
-| 1. Add from an application | Owned application action; Dublin date/time, four types, venue and notes; explicit commit | `test_add_interview.py`: successful request/service lifecycle, tampered IDs, escaping and UTC conversion | Creation/display after refresh passed (previously reported) | Remaining field combinations, optional fields, safe links/notes and timezone checks in steps 3-5 |
-| 2. Required date/time | Server parsing, required fields, retained errors, explicit DST rejection | Create/edit tests: missing/malformed fields, invalid type/outcome, venue limits, DST gaps/overlaps and winter/summer round trips | Full validation/timezone checks not yet reported | Steps 4 and 8: browser/server errors, retained input, winter/summer display and DST errors |
-| 3. Edit/delete with confirmation | Prefilled edit; no reassignment; GET confirmation/Cancel; CSRF POST delete | Edit/delete tests: unchanged edit, cancellation, HTTP methods, failures/rollback and valid-CSRF foreign POST no-write assertions | Time/outcome edit and unchanged save passed; deletion confirmation, Cancel, deletion and absence after refresh passed; parent application remained. Responsive forms and deletion confirmation checked at 375px, 768px and 1440px (user reports) | Other editable fields, failure handling and real tampering/CSRF POST checks in steps 8-10 |
-| 4. Outcome | Pending/Passed/Failed saved/displayed; legacy NULL presented as Pending without rewriting | Edit/delete tests: all outcomes, invalid submissions, legacy NULL; service validation | Outcome editing passed (previously reported); no claim that every choice or legacy NULL was checked | All choices/default Pending and existing legacy NULL if available, steps 4, 8 and 11 |
-| 5. Interviews table/order | Responsive table, Dublin label, expandable notes, safe links; upcoming ascending, past descending, ID ties | Listing/service tests: SQL clauses/parameters, mocked ordering/rendering, exact cutoff, ties, safe links, empty state and filters | Mixed upcoming/past and equal-time ordering passed; keyboard actions, expandable notes and interview links work; responsive checks at 375px, 768px and 1440px passed, including table scrolling and reachable actions (user reports) | Exact cutoff under a controlled development clock if available; application-filter regression and unsafe-link/escaped-content checks not specifically reported, step 12 |
-| 6. Owner access | Persisted Flask-Login identity; scoped listing/mutations; foreign/missing 404; authenticated navigation | Create/edit/delete and listing tests: two synthetic users; rendered valid-CSRF foreign POSTs reach ownership queries, return 404 and run no write SQL; missing/invalid CSRF rejected | Second persisted user cannot see Olia's applications/interviews; foreign Add/Edit/Delete-confirmation GETs returned 404; Olia's records remained unchanged (reported 10 November 2026) | Real valid-CSRF foreign POSTs and tampering, missing/invalid CSRF, logout/navigation and reverse-direction isolation, steps 6, 10 and 13 |
+## Acceptance evidence and remaining checks
 
-## User-reported manual evidence
+Automated tests use synthetic users, mocked SQL/configuration and no hosted
+connection. They do not establish live POST/CSRF, validation, failure or timezone
+behaviour. Historical 136-check schema verification and empty-database restore
+counts do not establish these Flask flows or populated-data recovery.
 
-The user reported the following browser results on 10 November 2026. These were
-not agent-executed tests and do not establish the unreported POST checks:
+| Criterion / subtask | Implemented and automated evidence | User-reported browser evidence | Manual verification still unreported |
+| --- | --- | --- | --- |
+| Add/storage: CAR-86/87/88, AC1 | Existing tables, owned entry point, form/save transaction; create/service tests | Create/display after refresh | Remaining type/optional-field combinations and failure paths |
+| Required fields: CAR-87/88, AC2 | Shared parsing, limits, errors; missing/malformed/type/outcome and DST tests | No full validation/timezone pass reported | Server errors/retained input, winter/summer storage/display, DST gap/overlap |
+| Edit/delete: CAR-89, AC3 | Prefill, unchanged saves, confirmation/Cancel, POST delete; rollback tests | Time/outcome edit, unchanged saves, confirmation, cancellation, deletion and absence after refresh; parent remained | Other edited fields, real malicious POSTs and failures |
+| Outcome: CAR-90, AC4 | All choices, default and legacy NULL tests | Outcome edit | Every choice/default and existing legacy NULL if available |
+| Table/order: CAR-91, AC5 | One cutoff, ties, rendered order, safe links, notes and filters tested | Upcoming/past and equal-time order; keyboard actions, expandable notes, links; 375/768/1440px scrolling, reachable actions, forms and confirmation | Exact-cutoff development-clock check, filter regression and unsafe-link checks; new merged layout requires regression |
+| Owner access: CAR-91, AC6 | Scoped queries, persisted IDs; valid rendered-CSRF foreign POSTs reach ownership, return 404 and run no writes; invalid CSRF rejected | Second persisted user cannot see the first user's applications/interviews; foreign Add/Edit/Delete-confirmation GETs return 404; original records unchanged | Live valid-CSRF foreign POSTs, ID tampering, invalid CSRF, reverse isolation and logout/navigation |
 
-- Mixed upcoming/past and equal-time interview ordering passed.
-- A second persisted user could not see Olia's applications or interviews.
-- Direct foreign-owned Add, Edit and Delete-confirmation GET URLs returned 404.
-- Olia's records remained unchanged.
-- Keyboard actions, expandable notes and interview links work.
-- Responsive checks at 375px, 768px and 1440px passed, including table scrolling,
-  reachable actions, create/edit forms and deletion confirmation.
+These are user-reported checks, not automated browser results. Ordering/isolation
+were reported on 10 November 2026; dates for earlier CRUD checks were not supplied.
+Prior responsive results predate the main-layout merge and do not prove the merged
+layout. CAR-67 remains open for remaining verification and team review.
 
-Earlier user reports confirmed creation/display after refresh, time/outcome edits,
-saving unchanged values, deletion confirmation and cancellation, confirmed deletion,
-and absence after refresh while the parent application remained. The execution dates
-of those earlier checks were not supplied. CAR-67 remains incomplete pending the
-manual checks listed above; mocked POST coverage is not real hosted POST evidence.
+## Repeatable manual checks
 
-## Remaining manual procedure (continuation)
+1. Use a persisted user and owned application. If none exists, obtain separate
+   approval for a clearly synthetic Company/JobApplication with required fields,
+   the persisted owner ID and UTC timestamps; retain IDs for cleanup. Application
+   creation is not implemented here. No records are inserted by local tests.
+2. Create winter, summer and past interviews; refresh and confirm persistence and
+   Dublin time. Test blank/malformed fields, invalid choices, venue length and
+   retained values. Reject 29 March 2026 01:30 and 25 October 2026 01:30.
+3. Edit every field and save unchanged values. Check all outcomes/default Pending;
+   view existing legacy NULL if available. Confirm no application/status reassignment.
+4. Open deletion confirmation; Cancel must preserve data. Confirm POST deletion,
+   refresh absence and parent preservation. GET must never delete.
+5. With two users, repeat listings and foreign GETs, then send foreign create/edit/
+   delete POSTs with a valid token from the current session: expect 404 and no
+   changes. Missing/invalid CSRF must reject mutations. Tampered IDs must not
+   change ownership. Check logout and authenticated interview navigation.
+6. At 320/390/768/1440px, check navbar/account/Logout with long names; phone cards,
+   desktop tables, filters, reachable actions and any local scrolling. Check
+   keyboard focus, notes, safe links, create/edit errors and deletion confirmation.
+7. In an approved development setup, simulate database failure: public home/login
+   remain usable with an existing session, protected pages show generic 503, and
+   recovery needs no new login. Check uncertain writes before retrying. Do not
+   disrupt hosting to perform this check.
 
-The user has reported keyboard action access, expandable notes, interview links
-and responsive checks at 375px, 768px and 1440px. Those results are recorded above;
-they do not establish the unperformed URL-security, CSRF, validation or timezone
-checks. The following procedure remains available for regression testing.
+## Current integration verification
 
-The narrow-screen overflow fix allows the shared header/account controls to wrap,
-stacks the tracker summary and uses two status columns on small screens. Flex/grid
-children can shrink, while each wide table retains its own keyboard-focusable
-horizontal scroll region. Interview form controls and confirmation actions fit and
-wrap within their cards. No page-level overflow hiding is used.
+The integration suite passes 147 local tests, including outage/recovery, startup
+configuration, sanitised logging and practice-card regressions. `git diff --check`
+is part of the merge review. Requirements retain every dependency pin.
 
-An agent headless Chrome attempt could not load the external Bootstrap stylesheet;
-unstyled measurements were discarded. No successful styled browser verification
-at 375px, 768px or 1440px is claimed by the agent; successful checks at these
-widths are user-reported. At each width, check the document has no
-horizontal overflow, all navigation/Logout remain visible, and scrolling each
-table reaches Add interview and Edit/Delete. Also check create/edit inputs,
-validation errors, long names/venues/notes, Save/Cancel and deletion confirmation.
-
-12. With separately authorised synthetic records available, check `/tracker` and
-    `/interviews` on desktop and a narrow viewport (about 360 px). The interview
-    navigation must land on the table. Check application/company, Dublin date/time,
-    type, venue, outcome, Edit/Delete, keyboard-focusable overflow and expandable
-    notes. Confirm status/company/role filters still affect only applications.
-    Use past and future interviews, including equal timestamps: future ascending,
-    past descending, ID ascending for ties. Verify an exact-cutoff case against a
-    controlled development clock if available; local mocks cover this boundary.
-13. Log in as each of two persisted users and confirm each sees only their own
-    interview rows. Try the other's edit/delete URLs directly with GET and a valid
-    token from the current session for POST: expect 404. Log out and open
-    `/interviews`: expect login, followed by the owned table after authentication.
-
-The agent inserted no fixture and ran no hosted/browser tests. User-reported
-browser evidence is recorded above; it does not cover every acceptance check.
-If no owned applications exist, the separately authorised minimal fixture described
-in step 2 remains a manual-test prerequisite; application CRUD is outside CAR-67.
-
-
-## CAR-86 through CAR-91 final review
-
-| Subtask | Implementation and evidence | Remaining verification limit |
-| --- | --- | --- |
-| CAR-86 Storage | Existing Interview/JobApplication tables and FK reused; parameterised owner-scoped service; explicit transactions; no schema changes. User reports create/edit/delete persistence after refresh. | No agent-hosted execution; real failure/rollback scenarios covered with mocks only |
-| CAR-87 Form | Shared create/prefilled edit form; required Dublin date/time, exact choices, optional venue/notes; responsive user checks reported | Full browser validation, DST and winter/summer storage comparison not reported |
-| CAR-88 Save | Owned application entry point, CSRF POST, UTC conversion, guarded commit, safe errors and redirect | Foreign valid-CSRF POSTs, tampering and failures verified with mocks, not manually |
-| CAR-89 Edit/delete | Immutable association, unchanged saves accepted, confirmation/Cancel and CSRF POST delete; user reports persistence and parent preservation | Real malicious POST and failure-path testing not reported |
-| CAR-90 Outcome | Pending/Passed/Failed, server validation, legacy NULL display; user reports outcome edit | Every choice/default and legacy NULL browser check not specifically reported |
-| CAR-91 List/access | Owner-filtered responsive table; one UTC cutoff, stable ordering, authenticated navigation; user reports ordering, isolation and foreign GET 404s | Valid-CSRF foreign POSTs, reverse-direction isolation, exact cutoff and logout/navigation have mocked coverage; manual checks not fully reported |
-
-Final local review: all six criteria have implementation and automated coverage.
-User-reported browser checks are separate evidence, not agent-executed tests.
-CAR-67 is ready for teammate code review after committing the intended files;
-remaining manual checks and team acceptance must be recorded before marking Done.
+Headless Chrome checked synthetic tracker, create/edit and confirmation pages at
+320/390/768/1440px with long names/content. The loaded Bootstrap 6.0.0-alpha.1 CSS
+matched the template SRI hash. No page overflow was measured; navbar/Logout and
+form controls fit, actions were reachable, phone rows used cards and wider rows
+remained tables. At 768px, wide tables scrolled within their own regions. Phone
+and desktop tracker screenshots were inspected. These checks establish layout for
+synthetic pages, not live database mutations, exhaustive keyboard interaction or
+all browsers. Earlier failed stylesheet attempts do not count as visual passes.
+Live POST/CSRF, validation, timezone and outage tests remain unreported.

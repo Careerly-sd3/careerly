@@ -3,7 +3,7 @@ import os
 from db import DatabaseError, init_app
 
 from dotenv import load_dotenv
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 
 from services.csrf import clear_csrf_token, csrf_protect, init_app as init_csrf
@@ -31,7 +31,10 @@ load_dotenv()
 app = Flask(__name__)
 init_app(app)
 
-app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key or not secret_key.strip():
+    raise RuntimeError("SECRET_KEY must be configured before starting Careerly.")
+app.config["SECRET_KEY"] = secret_key
 init_csrf(app)
 
 login_manager = LoginManager(app)
@@ -42,14 +45,32 @@ login_manager.login_message_category = "danger"
 
 @app.errorhandler(DatabaseError)
 def database_unavailable(error):
-    return "Database access is temporarily unavailable. Please try again later.", 503
+    return render_template("service-unavailable.html"), 503
 
 
 @login_manager.user_loader
 def load_user(user_id):
     """Flask-Login calls this on every request with the id from the session
     cookie. Returning None means "not logged in"."""
-    return get_user_by_id(user_id)
+    try:
+        return get_user_by_id(user_id)
+    except DatabaseError:
+        # Preserve the signed session identity for recovery on the next request.
+        # This is an unavailable account lookup, not invalid credentials.
+        g.auth_database_unavailable = True
+        return None
+
+
+@app.before_request
+def account_service_availability():
+    if request.endpoint == "static":
+        return None
+    # Resolve Flask-Login once before a protected view or template can use it.
+    current_user.is_authenticated
+    if getattr(g, "auth_database_unavailable", False):
+        public_read = request.method in ("GET", "HEAD") and request.endpoint in ("index", "login", "register")
+        if not public_read and request.endpoint != "logout":
+            return database_unavailable(None)
 
 
 def safe_next_url(target):

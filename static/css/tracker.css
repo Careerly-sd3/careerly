@@ -1,0 +1,220 @@
+/* Layout switches measure the page section, not the window, matching Bootstrap's g-col-* classes. */
+.tracker {
+    container: tracker / inline-size;
+}
+
+/* ---------- Header: title, Add button, status tiles ---------- */
+
+.tracker-header {
+    display: grid;
+    grid-template-areas: "title" "add" "tiles";
+    align-items: center;
+    gap: 1rem 1.5rem;
+}
+
+.tracker-header > h1     { grid-area: title; }
+.tracker-header > button { grid-area: add; }
+.status-tiles            { grid-area: tiles; }
+
+.status-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+@container tracker (width < 340px) {
+    .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container tracker (width >= 576px) {
+    .tracker-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "title add" "tiles tiles";
+    }
+}
+
+@container tracker (width >= 1024px) {
+    .tracker-header {
+        grid-template-columns: auto minmax(0, 1fr) 16rem;
+        grid-template-areas: "title tiles add";
+    }
+}
+
+/* ---------- Always-visible scrollbar (macOS hides it by default) ---------- */
+
+.visible-scroll::-webkit-scrollbar { width: 0.75rem; }
+.visible-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
+.visible-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border: 3px solid #f3f4f6; border-radius: 999px; }
+
+@supports not selector(::-webkit-scrollbar) {
+    .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
+}
+
+/* ---------- Column headings that are dropdown filters ----------
+   The real <select> sits invisibly on top of the heading, so clicking it opens the dropdown. */
+
+.filter-head {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.filter-head select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.filter-head:hover,
+.filter-head:focus-within,
+.filter-head.is-active {
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+}
+
+/* ---------- Applications table ---------- */
+
+.applications-card {
+    background-color: var(--bs-bg-body);  /* the phone layout clears Bootstrap's cell background */
+}
+
+.applications-scroll {
+    max-height: 21rem;  /* about five rows, then it scrolls */
+}
+
+.applications-table [data-col="applied"],
+.applications-table [data-col="status"] {
+    white-space: nowrap;
+}
+
+/* Phones: the heading row becomes filter buttons and each row a small card:
+   company ............ status
+   role
+   applied   next step   actions */
+@container tracker (width < 640px) {
+    .applications-scroll { max-height: none; }
+
+    .applications-table,
+    .applications-table > thead,
+    .applications-table > tbody {
+        display: block;
+    }
+
+    .applications-table > thead > tr {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-block-end: var(--bs-border-width) solid var(--bs-border-color);
+    }
+
+    .applications-table > thead > tr > th {
+        padding: 0;
+        border: 0;
+    }
+
+    .applications-table > thead > tr > th:not(:has(.filter-head)) {
+        display: none;
+    }
+
+    .applications-table .filter-head {
+        min-height: 2.25rem;
+        padding-inline: 0.85rem;
+        border: var(--bs-border-width) solid var(--bs-border-color);
+        border-radius: 999px;
+        font-size: 0.875rem;
+        text-decoration: none;
+    }
+
+    .applications-table .filter-head.is-active {
+        border-color: currentColor;
+        font-weight: 600;
+    }
+
+    .applications-table > tbody > tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas:
+            "company status"
+            "role role"
+            "applied next"
+            "actions actions";
+        gap: 0.15rem 0.75rem;
+        padding: 0.85rem 1rem;
+    }
+
+    .applications-table > tbody > tr + tr {
+        border-block-start: var(--bs-border-width) solid var(--bs-border-color);
+    }
+
+    .applications-table > tbody > tr > td {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    /* The "no matches" message */
+    .applications-table > tbody > tr:has(> td[colspan]) {
+        display: block;
+    }
+
+    .applications-table [data-col="company"] { grid-area: company; font-weight: 700; }
+    .applications-table [data-col="status"]  { grid-area: status; justify-self: end; }
+    .applications-table [data-col="role"]    { grid-area: role; color: var(--bs-fg-3); margin-block-end: 0.5rem; }
+    .applications-table [data-col="applied"] { grid-area: applied; }
+    .applications-table [data-col="next"]    { grid-area: next; }
+    .applications-table [data-col="actions"] { grid-area: actions; align-self: end; }
+
+    .applications-table [data-col="applied"]::before { content: "Applied"; }
+    .applications-table [data-col="next"]::before    { content: "Next step"; }
+
+    .applications-table [data-col="applied"]::before,
+    .applications-table [data-col="next"]::before {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        color: var(--bs-fg-3);
+    }
+}
+
+/* Shared shrink boundaries keep overflow inside each table region. */
+.tracker, .tracker > *, .tracker .grid > *, .tracker .card,
+.tracker .card-body, .tracker .d-flex > *, .tracker .table-card {
+    min-width: 0;
+    max-width: 100%;
+}
+.tracker { overflow-wrap: anywhere; }
+.tracker .table-responsive { max-width: 100%; overflow-x: auto; }
+.tracker th, .tracker td { overflow-wrap: anywhere; }
+.interviews-table details { max-width: 22rem; }
+.interviews-table td, .interviews-table th { vertical-align: top; }
+@container tracker (width >= 640px) {
+    .applications-table { min-width: 48rem; }
+    .interviews-table { min-width: 60rem; }
+    .tracker thead th { overflow-wrap: normal; }
+    .interviews-table [data-col="scheduled"] { min-width: 12rem; }
+    .interviews-table [data-col="type"], .interviews-table [data-col="outcome"] { min-width: 6rem; }
+    .interviews-table [data-col="notes"] { min-width: 7rem; }
+    .interviews-table [data-col="actions"] { min-width: 10rem; }
+    .interviews-table [data-col="application"], .interviews-table [data-col="venue"],
+    .applications-table [data-col="company"], .applications-table [data-col="role"] {
+        min-width: 10rem;
+        max-width: 24rem;
+    }
+}
+@container tracker (width < 640px) {
+    .interviews-table, .interviews-table > tbody { display: block; }
+    .interviews-table > thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+    .interviews-table > tbody > tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; padding: 1rem; }
+    .interviews-table > tbody > tr + tr { border-block-start: 1px solid var(--bs-border-color); }
+    .interviews-table > tbody > tr > * { min-width: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+    .interviews-table [data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; font-weight: 600; }
+}

@@ -101,3 +101,20 @@ footer a {
     interpolate-size: allow-keywords !important;
     transition: 300ms !important;
 }
+
+/* Phones: less space above the title; slimmer nav buttons keep the navbar on one line. */
+@media (width < 576px) {
+    main > section {
+        margin-block: 2rem;
+    }
+
+    #nav-links > a {
+        padding-inline: 1rem;
+    }
+}
+
+@media (width < 360px) {
+    #nav-links > a {
+        padding-inline: 0.75rem;
+    }
+}

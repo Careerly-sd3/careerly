@@ -26,6 +26,9 @@ STATUS_THEMES = {
 # Statuses shown as count tiles at the top of the page.
 SUMMARY_STATUSES = ("Applied", "Interview", "Offer", "Rejected")
 
+# How many upcoming interview cards the tracker shows; "Show more" opens the Interviews page.
+VISIBLE_INTERVIEWS = 2
+
 # Shown where an interview has no venue or link.
 NO_LOCATION = "—"
 
@@ -121,7 +124,32 @@ def _location_url(value):
     return None
 
 
-def _interview_rows(interviews):
+# Meeting services named on the interview cards, matched on the link's host
+# (the host itself or any subdomain of it, never a lookalike such as zoom.us.evil.example).
+MEETING_SERVICES = (
+    ("meet.google.com", "Google Meet"),
+    ("zoom.us", "Zoom"),
+    ("teams.microsoft.com", "Microsoft Teams"),
+    ("teams.live.com", "Microsoft Teams"),
+    ("skype.com", "Skype"),
+    ("webex.com", "Webex"),
+    ("whereby.com", "Whereby"),
+    ("meet.jit.si", "Jitsi Meet"),
+)
+
+
+def _location_label(value):
+    """Readable text for a venue: a service name or site name for a link, else the venue as typed."""
+    if not _location_url(value):
+        return value
+    host = urlsplit(value).hostname.lower()
+    for domain, label in MEETING_SERVICES:
+        if host == domain or host.endswith("." + domain):
+            return label
+    return host.removeprefix("www.")
+
+
+def _interview_rows(interviews, cutoff=None):
     """Keep the service's UTC ordering/IDs; convert only display datetimes."""
     return [
         {
@@ -130,6 +158,8 @@ def _interview_rows(interviews):
             "scheduled_at": utc_to_dublin(interview["scheduled_at"]),
             "location": interview["venue_or_link"] or NO_LOCATION,
             "location_url": _location_url(interview["venue_or_link"]),
+            "location_label": _location_label(interview["venue_or_link"] or NO_LOCATION),
+            "is_past": cutoff is not None and interview["scheduled_at"] < cutoff,
         }
         for interview in interviews
     ]
@@ -174,14 +204,16 @@ def load_tracker_page(user_id, status="", company="", role=""):
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     interviews = list_interviews(user_id, cutoff=cutoff)
-    cards = _interview_rows(interviews)
+    cards = _interview_rows(interviews, cutoff)
+    upcoming = [card for card in cards if not card["is_past"]][:VISIBLE_INTERVIEWS]
     rows = _application_rows(applications, interviews)
     return {
         "applications": _filter_rows(rows, status, company, role),
         "total_applications": len(applications),
         "company_options": _options(rows, "company"),
         "role_options": _options(rows, "job_title"),
-        "interviews": cards,
+        "interviews": upcoming,
+        "has_more_interviews": len(cards) > len(upcoming),
         "practice_meta": _practice_meta(cards, cutoff),
         "status_counts": _status_counts(applications),
     }

@@ -21,6 +21,47 @@
 </div>
 {%- endmacro %}
 
+{% macro interview_card(interview) -%}
+<article class="card interview-card" data-bs-theme="light" data-interview-id="{{ interview.interview_id }}" data-application-id="{{ interview.application_id }}">
+    <div class="card-body">
+        <div>
+            <h3 class="fs-lg fw-bold mb-0">{{ interview.company }}</h3>
+            <p class="fg-3 mb-0">{{ interview.job_title }}</p>
+        </div>
+        <hr>
+        {# Details on the left, Edit / Delete on the right of the same row #}
+        <div class="d-flex align-items-center gap-3">
+            <dl class="d-flex flex-wrap gap-4 mb-0 flex-grow-1">
+                <div>
+                    <dt class="fs-xs fg-3 fw-medium text-uppercase">Date</dt>
+                    <dd class="fw-medium mb-0">{{ date_text(interview.scheduled_at) }}</dd>
+                </div>
+                <div>
+                    <dt class="fs-xs fg-3 fw-medium text-uppercase">Time</dt>
+                    <dd class="fw-medium mb-0">{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</dd>
+                </div>
+                <div>
+                    <dt class="fs-xs fg-3 fw-medium text-uppercase">Type</dt>
+                    <dd class="fw-medium mb-0">{{ interview.interview_type|capitalize }}</dd>
+                </div>
+                <div>
+                    <dt class="fs-xs fg-3 fw-medium text-uppercase">Location</dt>
+                    <dd class="fw-medium mb-0 interview-location">{% if interview.location_url %}<a href="{{ interview.location_url }}" target="_blank" rel="noopener noreferrer" title="{{ interview.location_url }}">{{ interview.location_label }}</a>{% else %}{{ interview.location_label }}{% endif %}</dd>
+                </div>
+            </dl>
+            <div class="d-flex gap-1 flex-shrink-0">
+                <a class="btn btn-subtle btn-icon btn-sm theme-secondary" href="{{ url_for('interviews') }}" aria-label="Edit {{ interview.company }} interview" title="Edit interview">
+                    <i class="bi bi-pencil" aria-hidden="true"></i>
+                </a>
+                <a class="btn btn-subtle btn-icon btn-sm theme-danger" href="{{ url_for('delete_interview', interview_id=interview.interview_id) }}" aria-label="Delete {{ interview.company }} interview" title="Delete interview">
+                    <i class="bi bi-trash3-fill" aria-hidden="true"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</article>
+{%- endmacro %}
+
 {% macro empty_state(icon, message, classes='') -%}
 <div class="card {{ classes }}" data-bs-theme="light">
     <div class="card-body align-items-center text-center">
@@ -44,11 +85,24 @@
         <h1 class="fs-2xl fw-bold mb-0">Job Applications</h1>
         <button type="button" class="btn btn-solid btn-lg theme-success">+ Add Application</button>
 
-        <ul class="status-tiles list-unstyled mb-0" data-bs-theme="light">
+        {# Each count sits inside a small mountain peak. The ridge is drawn on a 100 x 50 box
+           (y = 50 is the ground); every peak stays high over the middle, where the text is. #}
+        {% set peak_ridges = {
+            'Applied':   '0,50 14,36 30,16 50,6 70,14 84,30 100,50',
+            'Interview': '0,50 12,34 28,12 40,18 56,8 72,16 86,32 100,50',
+            'Offer':     '0,50 16,32 30,14 42,18 54,4 68,16 84,26 100,50',
+            'Rejected':  '0,50 14,38 30,18 46,14 60,18 74,2 86,22 100,50',
+        } %}
+        <ul class="status-tiles list-unstyled mb-0">
             {% for status, count in status_counts.items() %}
-            <li class="theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
-                <div class="fw-semibold">{{ count }}</div>
-                <div class="fs-sm">{{ status }}</div>
+            {% set ridge = peak_ridges.get(status, peak_ridges['Applied']) %}
+            <li class="status-tile" data-status="{{ status }}">
+                <svg class="status-tile-art" viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                    <polygon class="status-tile-fill" points="{{ ridge }}" />
+                    <polyline class="status-tile-ridge" points="{{ ridge }}" vector-effect="non-scaling-stroke" />
+                </svg>
+                <div class="status-tile-count fs-sm fw-semibold">{{ count }}</div>
+                <div class="fs-xs">{{ status }}</div>
             </li>
             {% endfor %}
         </ul>
@@ -114,44 +168,22 @@
     {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet. Interviews are added from an existing application.") }}
     {% endif %}
 
-    <section id="interviews" aria-labelledby="interviews-heading">
-        <h2 id="interviews-heading" class="fs-xl fw-bold mb-2">Interviews</h2>
-        <p id="interviews-help">Europe/Dublin date and time. Upcoming interviews first, then most recent past interviews.</p>
-        <div class="table-card" data-bs-theme="light">
-            <div class="table-responsive visible-scroll" role="region" aria-label="Interviews table" tabindex="0">
-                <table id="interviews-table" class="table table-hover interviews-table" aria-describedby="interviews-help">
-                    <caption class="visually-hidden">Your interviews in scheduled order</caption>
-                    <thead><tr>
-                        <th scope="col">Application / company</th><th scope="col">Date / time (Europe/Dublin)</th>
-                        <th scope="col">Type</th><th scope="col">Venue / link</th><th scope="col">Outcome</th>
-                        <th scope="col">Notes</th><th scope="col">Actions</th>
-                    </tr></thead>
-                    <tbody>
-                    {% for interview in interviews %}
-                        <tr data-interview-id="{{ interview.interview_id }}" data-application-id="{{ interview.application_id }}">
-                            <th scope="row" data-col="application">{{ interview.job_title }}<div class="fs-sm">{{ interview.company }}</div></th>
-                            <td data-col="scheduled" data-label="Date / time (Europe/Dublin)">{{ date_text(interview.scheduled_at) }}<div>{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</div></td>
-                            <td data-col="type" data-label="Type">{{ interview.interview_type|capitalize }}</td>
-                            <td data-col="venue" data-label="Venue / link" style="overflow-wrap: anywhere">{% if interview.location_url %}<a href="{{ interview.location_url }}" rel="noopener noreferrer">{{ interview.location }}</a>{% else %}{{ interview.location }}{% endif %}</td>
-                            <td data-col="outcome" data-label="Outcome">{{ interview.outcome }}</td>
-                            <td data-col="notes" data-label="Notes">{% if interview.notes %}<details><summary>View notes</summary><p style="white-space: pre-wrap; overflow-wrap: anywhere">{{ interview.notes }}</p></details>{% else %}No notes{% endif %}</td>
-                            <td data-col="actions" data-label="Actions"><div class="d-flex flex-wrap gap-2">
-                                <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('edit_interview', interview_id=interview.interview_id) }}">Edit interview</a>
-                                <a class="btn btn-subtle btn-sm theme-danger" href="{{ url_for('delete_interview', interview_id=interview.interview_id) }}">Delete interview</a>
-                            </div></td>
-                        </tr>
-                    {% else %}
-                        <tr><td colspan="7" class="text-center py-4">No interviews scheduled yet. Add an interview from an owned application.</td></tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </section>
+    {# Upcoming interviews (left) next to the practice card (right) #}
+    <h2 id="interviews" class="fs-xl fw-bold mb-0">Upcoming interviews</h2>
     <div class="grid">
-        {# Practice card: as tall as the cards beside it. The question list slides open inside it. #}
+        {# The next upcoming interviews #}
+        <div class="g-col-12 md:g-col-6 d-flex flex-column gap-4">
+            {% for interview in interviews %}
+            {{ interview_card(interview) }}
+            {% else %}
+            {{ empty_state('bi-person-video3', 'No interviews scheduled yet. Add an interview from an application.') }}
+            {% endfor %}
+        </div>
+
+        {# Practice card: exactly as tall as the interview cards beside it ("Show more" sits below both).
+           The question list slides open inside it. #}
         {% if practice_questions %}
-        <article id="practice" class="card practice-card g-col-12" style="min-height: 18rem"
+        <article id="practice" class="card practice-card g-col-12 md:g-col-6" style="min-height: 18rem"
             data-bs-theme="light" data-questions="{{ practice_questions|tojson|forceescape }}">
             <div class="card-body overflow-hidden">
                 <div class="d-flex align-items-center gap-3">
@@ -165,8 +197,8 @@
                         {% endif %}
                     </div>
                 </div>
-                <div class="visible-scroll overflow-y-auto" style="flex: 1 1 0">
-                    <p id="practice-current" class="collapse show fs-xl mb-0" data-current-question>{{ practice_questions[0] }}</p>
+                <div class="practice-body visible-scroll overflow-y-auto d-flex flex-column">
+                    <p id="practice-current" class="collapse show fs-xl text-center my-auto" data-current-question>{{ practice_questions[0] }}</p>
                     <ol id="practice-all" class="collapse list-group list-group-flush" data-toggle-state>
                         {% for question in practice_questions %}
                         <li class="list-group-item px-0 fs-lg">{{ question }}</li>
@@ -187,7 +219,16 @@
             </div>
         </article>
         {% else %}
-        {{ empty_state('bi-chat-square-text', 'No practice questions yet.', 'g-col-12 md:g-col-6') }}
+        {{ empty_state('bi-chat-square-text', 'No practice questions yet.', 'practice-card g-col-12 md:g-col-6') }}
+        {% endif %}
+
+        {# "Show more" opens the Interviews page; it sits under the interview cards #}
+        {% if has_more_interviews %}
+        <div class="g-col-12 md:g-col-6">
+            <a class="btn btn-outline theme-inverse w-100" href="{{ url_for('interviews') }}">
+                Show more <i class="bi bi-arrow-right" aria-hidden="true"></i>
+            </a>
+        </div>
         {% endif %}
 
     </div>

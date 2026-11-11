@@ -3,7 +3,8 @@
 //   2. runs the Next button on the interview practice card,
 //   3. keeps the applications table as tall as the practice card (CSS uses --practice-card-height)
 //      and fills the space under the last application with blank ruled rows, and
-//   4. applies a table filter as soon as its dropdown changes.
+//   4. applies a table filter as soon as its dropdown changes, and
+//   5. opens and closes each application's History panel under its row.
 
 // 1. Button labels. A panel marked data-toggle-state tells us when its button is open or closed.
 document.querySelectorAll("[data-toggle-state]").forEach((panel) => {
@@ -79,4 +80,17 @@ function fillEmptyRows(scrollArea) {
 // 4. Filter dropdowns in the table header: choosing a value applies it straight away.
 document.querySelectorAll("[data-auto-submit]").forEach((select) => {
     select.addEventListener("change", () => select.form.requestSubmit());
+});
+
+// 5. History: the button opens the small timeline panel under it (and closes it again).
+document.querySelectorAll("[data-history-toggle]").forEach((button) => {
+    const panel = document.getElementById(button.getAttribute("aria-controls"));
+    button.addEventListener("click", () => {
+        const isOpen = button.getAttribute("aria-expanded") === "true";
+        button.setAttribute("aria-expanded", String(!isOpen));
+        panel.hidden = isOpen;
+        const scrollArea = panel.closest(".applications-scroll");
+        if (scrollArea) fillEmptyRows(scrollArea);  // fewer blank rows while a panel is open
+        if (!isOpen) panel.scrollIntoView({ block: "nearest" });
+    });
 });

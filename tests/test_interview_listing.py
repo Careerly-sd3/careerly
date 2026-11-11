@@ -41,7 +41,7 @@ class InterviewListingTests(unittest.TestCase):
         self.seed()
         with patch('tracker_data.datetime') as clock, patch('tracker_data.list_interviews', wraps=service.list_interviews) as listing:
             clock.now.return_value = self.cutoff.replace(tzinfo=timezone.utc)
-            response = self.client.get('/tracker')
+            response = self.client.get('/interviews')
             clock.now.assert_called_once_with(timezone.utc)
             listing.assert_called_once_with(101, cutoff=self.cutoff)
         self.assertEqual(response.status_code, 200)
@@ -53,8 +53,8 @@ class InterviewListingTests(unittest.TestCase):
                        'CASE WHEN i.scheduled_at >= %s THEN i.scheduled_at END ASC',
                        'CASE WHEN i.scheduled_at < %s THEN i.scheduled_at END DESC', 'i.interview_id ASC'):
             self.assertIn(clause, service.LIST_QUERY)
-        for value in (b'<table id="interviews-table"', b'Europe/Dublin', b'1:00 PM', b'<details>',
-                      b'<summary>View notes</summary>', b'&lt;script&gt;notes&lt;/script&gt;',
+        for value in (b'<table id="interviews-table"', b'Europe/Dublin', b'1:00 PM', b'<details class="interview-notes">',
+                      b'notes-closed-label">View notes</span>', b'&lt;script&gt;notes&lt;/script&gt;',
                       b'href="https://example.invalid/meeting?a=1&amp;b=2"', b'Pending',
                       b'href="/interviews/3/edit"', b'href="/interviews/3/delete"', b'tabindex="0"'):
             self.assertIn(value, response.data)
@@ -78,7 +78,9 @@ class InterviewListingTests(unittest.TestCase):
                       'company=Synthetic+company&role=Synthetic+role&status=Applied'):
             response = self.client.get('/tracker?' + query)
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(set(InterviewRows(response.get_data(as_text=True)).ids), {2, 3, 4, 7, 8, 9})
+            self.assertEqual(InterviewRows(response.get_data(as_text=True)).ids, [])
+            listing = self.client.get('/interviews?' + query)
+            self.assertEqual(set(InterviewRows(listing.get_data(as_text=True)).ids), {2, 3, 4, 7, 8, 9})
             if 'Missing' in query or 'Rejected' in query:
                 self.assertIn(b'No applications match these filters', response.data)
             else:
@@ -93,8 +95,8 @@ class InterviewListingTests(unittest.TestCase):
 
     def test_authenticated_navigation_and_empty_state(self):
         response = self.client.get('/interviews')
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.location.endswith('/tracker#interviews'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.location)
         response = self.client.get('/interviews', follow_redirects=True)
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'No interviews scheduled yet.', response.data)

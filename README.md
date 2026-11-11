@@ -48,7 +48,8 @@ separate `DB_*` configuration or ORM engine. See [MySQL setup](docs/database/mys
 Registration, login and Flask-Login user loading use the existing MySQL `User`
 table through `db.get_db()`. Authentication has local mocked coverage. User-reported interview browser results
 are linked below; comprehensive hosted authentication testing is not claimed.
-Owned applications now open the reusable Add interview form and save through the
+Owned applications on Tracker open the reusable Add interview form; the listing
+is on the authenticated Interviews page. Saves use the
 owner-scoped service. Interview editing, outcomes and confirmed deletion use the
 same ownership and CSRF protections. User-reported browser checks and remaining verification limits are recorded below. See
 [interview flow and manual checks](docs/interviews/add-interview.md).

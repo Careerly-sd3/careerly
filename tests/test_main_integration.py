@@ -83,7 +83,7 @@ class MainIntegrationTests(unittest.TestCase):
         self.assertIn('Upcoming role', tracker_data._practice_meta([future, past], cutoff))
         response = self.client.get('/tracker')
         self.assertNotIn(b'id="practice-meta"', response.data)
-        self.assertIn(b'class="card practice-card g-col-12"', response.data)
+        self.assertIn(b'class="card practice-card g-col-12 md:g-col-6"', response.data)
 
     def test_responsive_template_keeps_semantic_actions_and_external_link_rel(self):
         self.client.post(self.url, data=self.form | {'venue_or_link': 'https://example.invalid/meeting'})
@@ -91,6 +91,8 @@ class MainIntegrationTests(unittest.TestCase):
         self.assertIn(b'/static/css/tracker.css', response.data)
         self.assertIn(b'class="tracker-header"', response.data)
         self.assertIn(b'data-col="actions"', response.data)
+        self.assertNotIn(b'id="interviews-table"', response.data)
+        response = self.client.get('/interviews')
         self.assertIn(b'data-col="scheduled"', response.data)
         self.assertIn(b'data-label="Date / time (Europe/Dublin)"', response.data)
         self.assertIn(b'id="interviews"', response.data)

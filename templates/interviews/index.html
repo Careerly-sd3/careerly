@@ -1,0 +1,70 @@
+{% extends "template.html" %}
+{% block title %}Interviews{% endblock %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}">
+{% endblock %}
+{% macro date_text(value) %}{{ value.strftime('%b %d, %Y') }}{% endmacro %}
+{% block main %}
+<section class="tracker interviews-page d-flex flex-column gap-6">
+    <section id="interviews" aria-labelledby="interviews-heading">
+        <h1 id="interviews-heading" class="fs-xl fw-bold mb-2">Interviews</h1>
+        <p id="interviews-help">Europe/Dublin date and time. Upcoming interviews first, then most recent past interviews.</p>
+        <div class="table-card interviews-card" data-bs-theme="light">
+            <div class="table-responsive visible-scroll" role="region" aria-label="Interviews table" tabindex="0">
+                <table id="interviews-table" class="table table-hover interviews-table" aria-describedby="interviews-help">
+                    <caption class="visually-hidden">Your interviews in scheduled order</caption>
+                    <colgroup><col><col><col><col><col><col><col></colgroup>
+                    <thead><tr>
+                        <th scope="col">Application / company</th><th scope="col">Date / time (Europe/Dublin)</th>
+                        <th scope="col">Type</th><th scope="col">Venue / link</th><th scope="col">Outcome</th>
+                        <th scope="col">Notes</th><th scope="col">Actions</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for interview in interviews %}
+                        <tr data-interview-id="{{ interview.interview_id }}" data-application-id="{{ interview.application_id }}">
+                            <th scope="row" data-col="application">{{ interview.job_title }}<div class="fs-sm">{{ interview.company }}</div></th>
+                            <td data-col="scheduled" data-label="Date / time (Europe/Dublin)">{{ date_text(interview.scheduled_at) }}<div>{{ interview.scheduled_at.strftime('%I:%M %p').lstrip('0') }}</div></td>
+                            <td data-col="type" data-label="Type">{{ interview.interview_type|capitalize }}</td>
+                            <td data-col="venue" data-label="Venue / link" style="overflow-wrap: anywhere">{% if interview.location_url %}<a href="{{ interview.location_url }}" rel="noopener noreferrer">{{ interview.location }}</a>{% else %}{{ interview.location }}{% endif %}</td>
+                            <td data-col="outcome" data-label="Outcome">{{ interview.outcome }}</td>
+                            <td data-col="notes" data-label="Notes"><details class="interview-notes">
+                                <summary class="btn btn-subtle btn-sm theme-secondary interview-notes-toggle" aria-controls="notes-panel-{{ interview.interview_id }}" aria-expanded="false">
+                                    <i class="bi bi-file-earmark-text" aria-hidden="true"></i>
+                                    <span class="notes-toggle-label"><span class="notes-closed-label">View notes</span><span class="notes-open-label">Hide notes</span></span>
+                                </summary>
+                                <form class="interview-notes-editor" id="notes-panel-{{ interview.interview_id }}" hidden data-bs-theme="light" method="post" action="{{ url_for('save_interview_notes', interview_id=interview.interview_id) }}" data-interview-id="{{ interview.interview_id }}" aria-labelledby="notes-label-{{ interview.interview_id }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <p class="notes-panel-heading"><i class="bi bi-file-earmark-text" aria-hidden="true"></i> NOTES</p>
+                                    <label id="notes-label-{{ interview.interview_id }}" class="visually-hidden" for="interview-notes-{{ interview.interview_id }}">Notes for {{ interview.job_title }} at {{ interview.company }}</label>
+                                    <div class="notes-view-mode" data-notes-view>
+                                        <div class="notes-read-text" data-notes-text>{{ interview.notes if interview.notes else 'No notes yet.' }}</div>
+                                        <div><button type="button" class="btn btn-subtle notes-edit" data-notes-edit><i class="bi bi-pencil" aria-hidden="true"></i> Edit notes</button></div>
+                                    </div>
+                                    <div class="notes-edit-mode" data-notes-editor hidden>
+                                        <textarea id="interview-notes-{{ interview.interview_id }}" name="notes" rows="5" placeholder="Add notes..." aria-describedby="notes-status-{{ interview.interview_id }}">
+{{ interview.notes or '' }}</textarea>
+                                        <div class="notes-editor-actions">
+                                            <button type="submit" class="btn notes-save" data-notes-save aria-label="Save notes" disabled>Save</button>
+                                            <button type="button" class="btn notes-cancel" data-notes-cancel aria-label="Cancel changes">Cancel</button>
+                                        </div>
+                                    </div>
+                                    <p id="notes-status-{{ interview.interview_id }}" class="notes-status mb-0" role="status" aria-live="polite" aria-atomic="true"></p>
+                                </form>
+                            </details></td>
+                            <td data-col="actions" data-label="Actions"><div class="interview-row-actions">
+                                <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('edit_interview', interview_id=interview.interview_id) }}">Edit interview</a>
+                                <a class="btn btn-subtle btn-sm theme-danger" href="{{ url_for('delete_interview', interview_id=interview.interview_id) }}">Delete interview</a>
+                            </div></td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="7" class="text-center py-4">No interviews scheduled yet. Add an interview from an owned application.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+</section>
+<noscript>Inline notes editing requires JavaScript. Use Edit interview to change notes.</noscript>
+<script src="{{ url_for('static', filename='js/interview-notes.js') }}" defer></script>
+{% endblock %}

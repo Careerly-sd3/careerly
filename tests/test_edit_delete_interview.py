@@ -43,12 +43,12 @@ class EditDeleteInterviewTests(unittest.TestCase):
         original = deepcopy(self.database.interviews)
         response = self.client.post(self.edit, data=self.form)
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.location.endswith('/tracker'))
+        self.assertTrue(response.location.endswith('/interviews'))
         self.assertEqual(self.database.interviews, original)
         self.database.connection.commit.assert_called_once()
         self.database.connection.start_transaction.assert_called_once()
         self.assertFalse(self.database.connection.in_transaction)
-        self.assertIn(b'Interview updated.', self.client.get('/tracker').data)
+        self.assertIn(b'Interview updated.', self.client.get('/interviews').data)
 
     def test_changes_outcomes_and_ignores_association_tampering(self):
         foreign_before = deepcopy(self.database.interviews[902])
@@ -62,7 +62,7 @@ class EditDeleteInterviewTests(unittest.TestCase):
             self.assertEqual(row['application_id'], 501)
             self.assertEqual((row['interview_type'], row['venue_or_link'], row['notes'], row['outcome']),
                              ('onsite', 'New room', 'New notes', outcome))
-            self.assertIn(outcome.encode(), self.client.get('/tracker').data)
+            self.assertIn(outcome.encode(), self.client.get('/interviews').data)
         self.assertEqual(self.database.applications[501]['status'], 'Applied')
         self.assertIsNone(self.database.interviews[902]['outcome'])
         self.assertEqual(self.database.interviews[902], foreign_before)
@@ -136,21 +136,22 @@ class EditDeleteInterviewTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         for value in (b'Synthetic &lt;company&gt;', b'Synthetic &lt;role&gt;', b'09 July 2026, 14:30:12',
                       b'Europe/Dublin', b'method="post"', b'action="/interviews/901/delete"',
-                      b'name="csrf_token"', b'Confirm delete', b'href="/tracker">Cancel'):
+                      b'name="csrf_token"', b'Confirm delete', b'href="/interviews">Cancel'):
             self.assertIn(value, response.data)
-        self.client.get('/tracker')  # Follow Cancel, which is a GET link.
+        self.client.get('/interviews')  # Follow Cancel, which is a GET link.
         self.assertEqual(self.database.interviews, before)
         self.database.connection.commit.assert_not_called()
         response = self.client.post(self.delete, data={'csrf_token': 'synthetic-token',
                                                      'interview_id': '902', 'application_id': '502'})
         self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.location.endswith('/interviews'))
         self.assertNotIn(901, self.database.interviews)
         self.assertIn(902, self.database.interviews)
         self.database.connection.commit.assert_called_once()
-        self.assertIn(b'Interview deleted.', self.client.get('/tracker').data)
+        self.assertIn(b'Interview deleted.', self.client.get('/interviews').data)
 
     def test_display_actions_target_owned_record(self):
-        response = self.client.get('/tracker')
+        response = self.client.get('/interviews')
         self.assertIn(b'href="/interviews/901/edit"', response.data)
         self.assertIn(b'href="/interviews/901/delete"', response.data)
         self.assertNotIn(b'/interviews/902/', response.data)
@@ -178,7 +179,7 @@ class EditDeleteInterviewTests(unittest.TestCase):
     def test_legacy_null_is_pending_without_writing(self):
         self.database.interviews[901]['outcome'] = None
         self.assertIn(b'value="Pending" selected', self.client.get(self.edit).data)
-        self.assertIn(b'Pending', self.client.get('/tracker').data)
+        self.assertIn(b'Pending', self.client.get('/interviews').data)
         self.assertIsNone(self.database.interviews[901]['outcome'])
         self.database.connection.commit.assert_not_called()
 

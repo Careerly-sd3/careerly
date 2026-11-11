@@ -308,3 +308,9 @@ def load_tracker_page(user_id, status="", company="", role=""):
         "practice_meta": _practice_meta(cards, cutoff),
         "status_counts": _status_counts(applications),
     }
+
+
+def load_interviews_page(user_id):
+    """Dedicated owner listing; reuse the UTC ordering and display transformation."""
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    return {"interviews": _interview_rows(list_interviews(user_id, cutoff=cutoff))}

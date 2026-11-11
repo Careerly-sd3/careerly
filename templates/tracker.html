@@ -9,8 +9,32 @@
 <span class="badge badge-subtle theme-{{ status_themes[status] }}">{{ status }}</span>
 {%- endmacro %}
 
+{# A small panel under the row's History button: what happened and when, oldest first.
+   Filled dot = already happened, hollow dot = still ahead. #}
+{% macro history_panel(application) -%}
+<div id="history-{{ application.application_id }}" class="history-panel" hidden>
+    <p class="history-title mb-0">{{ application.company }} · {{ application.job_title }}</p>
+    {% if application.history %}
+    <ol class="history-timeline list-unstyled mb-0">
+        {% for event in application.history %}
+        <li class="history-event{% if event.is_future %} is-future{% endif %}">
+            <span class="history-dot" aria-hidden="true"></span>
+            <time class="history-date" datetime="{{ event.date.isoformat() }}">{{ date_text(event.date) }}</time>
+            <span>{{ event.label }}{% if event.detail %} · {{ event.detail }}{% endif %}{% if event.is_upcoming %} <span class="history-muted">(upcoming)</span>{% endif %}</span>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <p class="history-muted mb-0">No dates recorded for this application yet.</p>
+    {% endif %}
+</div>
+{%- endmacro %}
+
 {% macro row_actions(application) -%}
 <div class="d-flex flex-wrap gap-1">
+    <button type="button" class="btn btn-subtle btn-sm theme-secondary" aria-controls="history-{{ application.application_id }}" aria-expanded="false" data-history-toggle>
+        <i class="bi bi-clock-history" aria-hidden="true"></i> History
+    </button>
     <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('add_interview', application_id=application.application_id) }}">Add interview</a>
     <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Edit {{ application.company }} application">
         <i class="bi bi-pencil" aria-hidden="true"></i>
@@ -19,6 +43,7 @@
         <i class="bi bi-trash3-fill" aria-hidden="true"></i>
     </button>
 </div>
+{{ history_panel(application) }}
 {%- endmacro %}
 
 {% macro interview_card(interview) -%}

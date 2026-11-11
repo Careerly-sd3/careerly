@@ -34,7 +34,8 @@ NO_LOCATION = "—"
 
 # Every query filters by the user's id, which is passed as a parameter, never joined into the text.
 APPLICATIONS_QUERY = """
-    SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date
+    SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date,
+           a.created_at
     FROM `JobApplication` a
     JOIN `Company` c ON c.company_id = a.company_id
     WHERE a.user_id = %s
@@ -95,7 +96,50 @@ def _next_step(application, interviews):
     return ("Closed", None)
 
 
-def _application_rows(applications, interviews):
+def _history_event(day, label, detail=None, *, is_future=False, is_upcoming=False):
+    return {"date": day, "label": label, "detail": detail, "is_future": is_future, "is_upcoming": is_upcoming}
+
+
+def _interview_event(interview, cutoff):
+    """One interview: '<Type> interview', its venue label, and the outcome once it has happened."""
+    is_upcoming = interview["scheduled_at"] >= cutoff
+    venue = interview.get("venue_or_link")
+    parts = [_location_label(venue)] if venue else []
+    if not is_upcoming and interview.get("outcome") not in (None, "Pending"):
+        parts.append(interview["outcome"])
+    return _history_event(utc_to_dublin(interview["scheduled_at"]).date(),
+                          f"{interview['interview_type'].capitalize()} interview",
+                          " · ".join(parts) or None, is_future=is_upcoming, is_upcoming=is_upcoming)
+
+
+def _history(application, interviews, cutoff):
+    """What happened with one application and when, oldest first, from dates already stored.
+
+    created_at and scheduled_at are naive UTC (shown as Europe/Dublin dates); applied_at and
+    closing_date are plain dates. Same-day events keep this order: saved, applied, interviews, closing.
+    """
+    today = utc_to_dublin(cutoff).date()
+    events = []
+    if application.get("created_at"):
+        events.append(_history_event(utc_to_dublin(application["created_at"]).date(), "Saved to tracker"))
+    if application.get("applied_at"):
+        events.append(_history_event(application["applied_at"], "Applied",
+                                     is_future=application["applied_at"] > today))
+    events += [_interview_event(interview, cutoff) for interview in interviews
+               if interview["application_id"] == application["application_id"]]
+    if application.get("closing_date"):
+        events.append(_history_event(application["closing_date"], "Closing date",
+                                     is_future=application["closing_date"] > today))
+    return sorted(events, key=lambda event: event["date"])  # stable: keeps same-day order
+
+
+def _now_utc():
+    """The page's single "now": naive UTC to the second, matching the stored DATETIMEs."""
+    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+
+
+def _application_rows(applications, interviews, cutoff=None):
+    cutoff = cutoff or _now_utc()
     rows = []
     for application in applications:
         next_step, next_date = _next_step(application, interviews)
@@ -107,6 +151,7 @@ def _application_rows(applications, interviews):
             "status": application["status"],
             "next_step": next_step,
             "next_date": next_date,
+            "history": _history(application, interviews, cutoff),
         })
     return rows
 
@@ -202,11 +247,11 @@ def load_tracker_page(user_id, status="", company="", role=""):
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    cutoff = _now_utc()
     interviews = list_interviews(user_id, cutoff=cutoff)
     cards = _interview_rows(interviews, cutoff)
     upcoming = [card for card in cards if not card["is_past"]][:VISIBLE_INTERVIEWS]
-    rows = _application_rows(applications, interviews)
+    rows = _application_rows(applications, interviews, cutoff)
     return {
         "applications": _filter_rows(rows, status, company, role),
         "total_applications": len(applications),

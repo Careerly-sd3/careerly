@@ -3,37 +3,17 @@
 
 {# ---------- Small reusable pieces ---------- #}
 
-{% macro date_text(value) %}{{ value.strftime('%b %d, %Y') }}{% endmacro %}
+{# The Details / Notes / Interviews / History panels under each row (CAR-63) #}
+{% from "tracker/_details.html" import date_text, details_row, notes_form %}
 
 {% macro status_badge(status) -%}
 <span class="badge badge-subtle theme-{{ status_themes[status] }}">{{ status }}</span>
 {%- endmacro %}
 
-{# A small panel under the row's History button: what happened and when, oldest first.
-   Filled dot = already happened, hollow dot = still ahead. #}
-{% macro history_panel(application) -%}
-<div id="history-{{ application.application_id }}" class="history-panel" hidden>
-    <p class="history-title mb-0">{{ application.company }} · {{ application.job_title }}</p>
-    {% if application.history %}
-    <ol class="history-timeline list-unstyled mb-0">
-        {% for event in application.history %}
-        <li class="history-event{% if event.is_future %} is-future{% endif %}">
-            <span class="history-dot" aria-hidden="true"></span>
-            <time class="history-date" datetime="{{ event.date.isoformat() }}">{{ date_text(event.date) }}</time>
-            <span>{{ event.label }}{% if event.detail %} · {{ event.detail }}{% endif %}{% if event.is_upcoming %} <span class="history-muted">(upcoming)</span>{% endif %}</span>
-        </li>
-        {% endfor %}
-    </ol>
-    {% else %}
-    <p class="history-muted mb-0">No dates recorded for this application yet.</p>
-    {% endif %}
-</div>
-{%- endmacro %}
-
 {% macro row_actions(application) -%}
-<div class="d-flex flex-wrap gap-1">
-    <button type="button" class="btn btn-subtle btn-sm theme-secondary" aria-controls="history-{{ application.application_id }}" aria-expanded="false" data-history-toggle>
-        <i class="bi bi-clock-history" aria-hidden="true"></i> History
+<div class="row-actions d-flex gap-1">
+    <button type="button" class="btn btn-subtle btn-sm theme-secondary" aria-controls="details-{{ application.application_id }}" aria-expanded="false" data-details-toggle>
+        <i class="bi bi-chevron-down" aria-hidden="true"></i> Details
     </button>
     <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('add_interview', application_id=application.application_id) }}">Add interview</a>
     <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Edit {{ application.company }} application">
@@ -43,7 +23,6 @@
         <i class="bi bi-trash3-fill" aria-hidden="true"></i>
     </button>
 </div>
-{{ history_panel(application) }}
 {%- endmacro %}
 
 {% macro interview_card(interview) -%}
@@ -100,6 +79,7 @@
 
 {% block css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}" />
+<link rel="stylesheet" href="{{ url_for('static', filename='css/application-details.css') }}" />
 {% endblock %}
 
 {% block main %}
@@ -179,6 +159,7 @@
                             </td>
                             <td data-col="actions">{{ row_actions(application) }}</td>
                         </tr>
+                        {{ details_row(application) }}
                         {% else %}
                         <tr>
                             <td colspan="6" class="text-center fg-3 py-4">No applications match these filters. Try different choices or clear the filters.</td>
@@ -189,6 +170,9 @@
             </div>
         </div>
     </form>
+    {# The Notes editors post through these; they live out here because forms cannot nest.
+       One hidden box, so they add no gaps to the page (the fields join them with form="..."). #}
+    <div class="notes-forms" hidden>{% for application in applications %}{{ notes_form(application) }}{% endfor %}</div>
     {% else %}
     {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet. Interviews are added from an existing application.") }}
     {% endif %}

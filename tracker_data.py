@@ -32,10 +32,23 @@ VISIBLE_INTERVIEWS = 2
 # Shown where an interview has no venue or link.
 NO_LOCATION = "—"
 
+# How dates read in the details panels; matches the template's date_text macro.
+DISPLAY_DATE = "%b %d, %Y"
+
+# Text columns listed in the Details panel, in this order, when they hold something.
+FACT_FIELDS = (
+    ("location", "Location"),
+    ("work_type", "Work type"),
+    ("opportunity_type", "Opportunity"),
+    ("salary_text", "Salary"),
+)
+
 # Every query filters by the user's id, which is passed as a parameter, never joined into the text.
+# job_ad_text is left out on purpose: it can be long and the panels do not show it.
 APPLICATIONS_QUERY = """
     SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date,
-           a.created_at
+           a.created_at, a.location, a.work_type, a.opportunity_type, a.salary_text, a.job_url,
+           a.notes, a.updated_at, c.website_url
     FROM `JobApplication` a
     JOIN `Company` c ON c.company_id = a.company_id
     WHERE a.user_id = %s
@@ -138,11 +151,39 @@ def _now_utc():
     return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
 
 
+def _facts(application):
+    """The Details panel's label/value pairs, only for fields that hold something."""
+    values = ((label, (application.get(field) or "").strip()) for field, label in FACT_FIELDS)
+    facts = [{"label": label, "value": value} for label, value in values if value]
+    if application.get("closing_date"):
+        facts.append({"label": "Closing date", "value": application["closing_date"].strftime(DISPLAY_DATE)})
+    return facts
+
+
+def _link(label, value):
+    """A saved address: a link only for absolute HTTP(S); anything else stays plain text."""
+    url = _location_url(value)
+    return {"label": label, "text": _location_label(value) if url else value, "url": url}
+
+
+def _links(application):
+    return [_link(label, application[field])
+            for field, label in (("job_url", "Job ad"), ("website_url", "Company site"))
+            if application.get(field)]
+
+
+def _updated_text(application):
+    updated_at = application.get("updated_at")
+    return utc_to_dublin(updated_at).strftime(DISPLAY_DATE) if updated_at else ""
+
+
 def _application_rows(applications, interviews, cutoff=None):
     cutoff = cutoff or _now_utc()
     rows = []
     for application in applications:
-        next_step, next_date = _next_step(application, interviews)
+        own_interviews = [interview for interview in interviews
+                          if interview["application_id"] == application["application_id"]]
+        next_step, next_date = _next_step(application, own_interviews)
         rows.append({
             "application_id": application["application_id"],
             "company": application["company"],
@@ -151,7 +192,12 @@ def _application_rows(applications, interviews, cutoff=None):
             "status": application["status"],
             "next_step": next_step,
             "next_date": next_date,
-            "history": _history(application, interviews, cutoff),
+            "history": _history(application, own_interviews, cutoff),
+            "facts": _facts(application),
+            "links": _links(application),
+            "notes": application.get("notes") or "",
+            "updated_text": _updated_text(application),
+            "interviews": _interview_rows(own_interviews, cutoff),
         })
     return rows
 

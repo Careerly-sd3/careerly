@@ -3,11 +3,11 @@ import os
 from db import DatabaseError, init_app
 
 from dotenv import load_dotenv
-from flask import Flask, abort, flash, g, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 
 from services.csrf import clear_csrf_token, csrf_protect, init_app as init_csrf
-from services import interview_service
+from services import application_service, interview_service
 from services.interview_time import parse_dublin_datetime, utc_to_dublin
 
 from services.auth_service import (
@@ -20,6 +20,7 @@ from services.auth_service import (
     current_user_id
 )
 from tracker_data import (
+    DISPLAY_DATE,
     PRACTICE_QUESTIONS,
     STATUS_THEMES,
     load_tracker_page,
@@ -116,6 +117,29 @@ def tracker():
         practice_questions=PRACTICE_QUESTIONS,
         status_themes=STATUS_THEMES,
     ), status_code
+
+
+NOTES_SAVE_FAILED = "Could not save your notes. Check your tracker before retrying."
+
+
+@app.route("/applications/<int:application_id>/notes", methods=["POST"])
+@login_required
+@csrf_protect
+def save_application_notes(application_id):
+    """Save the notes typed into an application's Notes panel; answers the tracker's editor in JSON."""
+    try:
+        saved = application_service.update_notes(
+            current_user_id(), application_id, request.form.get("notes"))
+    except application_service.ApplicationNotFound:
+        abort(404)
+    except application_service.ApplicationValidationError as error:
+        if "notes" not in error.errors:
+            abort(404)  # an out-of-range id in the address is simply not one of the user's
+        return jsonify(error=error.errors["notes"]), 400
+    except DatabaseError:
+        return jsonify(error=NOTES_SAVE_FAILED), 503
+    return jsonify(notes=saved["notes"] or "",
+                   updated_text=utc_to_dublin(saved["updated_at"]).strftime(DISPLAY_DATE))
 
 
 def interview_form_values():

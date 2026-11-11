@@ -1,139 +1,123 @@
-"""Registration and login logic for Careerly (CAR-20 and CAR-30).
+"""Persistent registration/login via the shared verified MySQL connection.
 
-Users are stored in the shared MySQL database through db.get_db().
-Kept separate from the routes so it can be unit tested in CAR-75
-(patch email_exists / get_db in tests so no real database is needed).
+No environment loading, schema creation, ORM or in-memory user fallback.
+Reads finish only read transactions they opened. Registration requires an idle
+connection and owns its explicit transaction, preserving unrelated caller work.
 """
+from contextlib import closing
+from datetime import datetime, timezone
 import re
 
 import mysql.connector
 from flask_login import UserMixin, current_user
-from mysql.connector import errorcode
+import mysql.connector
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from db import DatabaseError, get_db
 
-# Table name exactly as it appears in the database. MySQL on Linux treats
-# table names as case-sensitive, so check it with SHOW TABLES, or see how
-# tracker_data.py writes it, and change this one line if it differs.
-USER_TABLE = "User"
-
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
-MAX_NAME_LENGTH = 100    # User.name is VARCHAR(100)
-MAX_EMAIL_LENGTH = 255   # User.email is VARCHAR(255)
+MAX_NAME_LENGTH = 100
+MAX_EMAIL_LENGTH = 255
 
-_DUMMY_HASH = generate_password_hash("not-a-real-password")
+USER_COLUMNS = "`user_id`, `name`, `email`, `password_hash`, `phone_number`, `created_at`, `cv_text`"
+USER_BY_EMAIL = "SELECT " + USER_COLUMNS + " FROM `User` WHERE `email` = %s"
+USER_BY_ID = "SELECT " + USER_COLUMNS + " FROM `User` WHERE `user_id` = %s"
+CREATE_USER = """
+    INSERT INTO `User` (`name`, `email`, `password_hash`, `created_at`)
+    VALUES (%s, %s, %s, %s)
+"""
 
 
 class EmailAlreadyExists(Exception):
-    """The email is already registered (the database's UNIQUE index caught it)."""
+    """Only MySQL duplicate-key error 1062 is translated to this result."""
+
+    def __init__(self):
+        super().__init__("An account with this email already exists.")
 
 
 class User(UserMixin):
-    """What Flask-Login needs to represent a logged-in user.
+    """Flask-Login adapter for a persisted User row; no second data model."""
 
-    UserMixin supplies is_authenticated, is_active, get_id() and so on.
-    `id` holds the User.user_id column; `user_id` is an alias for code
-    that prefers the column name.
-    """
-
-    def __init__(self, id, name, email, password_hash):
-        self.id = id
+    def __init__(self, id, name, email, password_hash, *, phone_number=None,
+                 created_at=None, cv_text=None):
+        self.user_id = id
         self.name = name
         self.email = email
         self.password_hash = password_hash
+        self.phone_number = phone_number
+        self.created_at = created_at
+        self.cv_text = cv_text
+
+    @property
+    def id(self):
+        return self.user_id
+
+    def get_id(self):
+        return str(self.user_id)
 
     @property
     def user_id(self):
         return self.id
 
+def _persisted_id(value):
+    if type(value) is int:
+        return value if 1 <= value <= 2147483647 else None
+    if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,9}", value):
+        identity = int(value)
+        return identity if identity <= 2147483647 else None
+    return None
+
 
 def current_user_id():
-    """The logged-in user's id, or None when nobody is logged in."""
-    return getattr(current_user, "id", None)
+    """Canonical ownership ID, from the persisted Flask-Login user only."""
+    if not current_user.is_authenticated:
+        return None
+    return _persisted_id(getattr(current_user, "user_id", None))
 
 
 def normalise_email(email):
-    """Trim spaces and lowercase, so 'A@x.com ' and 'a@x.com' are the same (CAR-24)."""
     return (email or "").strip().lower()
 
 
-# ---------- database helpers ----------
-
-def _db_error():
-    return DatabaseError(
-        "The user database could not be reached. Please try again in a moment."
-    )
-
-
-def _query_one(sql, params):
-    """Run a SELECT and return one row as a dict, or None."""
-    connection = get_db()  # raises DatabaseError if it can't connect
-    cursor = None
+def _read_user(query, parameters):
+    connection = get_db()
     try:
-        cursor = connection.cursor(dictionary=True)
-        cursor.execute(sql, params)
-        return cursor.fetchone()
+        owns_read = not connection.in_transaction
     except mysql.connector.Error:
-        raise _db_error() from None
+        raise DatabaseError("Could not inspect the authentication transaction.") from None
+    try:
+        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
+            cursor.execute(query, parameters)
+            row = cursor.fetchone()
+        if row is None:
+            return None
+        return User(id=row["user_id"], name=row["name"], email=row["email"],
+                    password_hash=row["password_hash"], phone_number=row.get("phone_number"),
+                    created_at=row.get("created_at"), cv_text=row.get("cv_text"))
+    except mysql.connector.Error:
+        raise DatabaseError("Could not load the user account. Please try again later.") from None
     finally:
-        if cursor is not None:
-            cursor.close()
-
-
-def _row_to_user(row):
-    if row is None:
-        return None
-    return User(
-        id=row["user_id"],
-        name=row["name"],
-        email=row["email"],
-        password_hash=row["password_hash"],
-    )
-
-
-def _rollback(connection):
-    try:
-        connection.rollback()
-    except mysql.connector.Error:
-        pass
-
-
-# ---------- finding users ----------
-
-def email_exists(email):
-    row = _query_one(
-        f"SELECT user_id FROM `{USER_TABLE}` WHERE email = %s",
-        (normalise_email(email),),
-    )
-    return row is not None
+        if owns_read:
+            try:
+                connection.rollback()
+            except mysql.connector.Error:
+                raise DatabaseError("Could not finish the authentication read transaction.") from None
 
 
 def get_user_by_email(email):
-    return _row_to_user(_query_one(
-        f"SELECT user_id, name, email, password_hash FROM `{USER_TABLE}` WHERE email = %s",
-        (normalise_email(email),),
-    ))
+    return _read_user(USER_BY_EMAIL, (normalise_email(email),))
 
 
 def get_user_by_id(user_id):
-    """Flask-Login gives the id back as text, so convert it. A bad or
-    tampered value just means "not logged in"."""
-    try:
-        user_id = int(user_id)
-    except (TypeError, ValueError):
-        return None
-    return _row_to_user(_query_one(
-        f"SELECT user_id, name, email, password_hash FROM `{USER_TABLE}` WHERE user_id = %s",
-        (user_id,),
-    ))
+    """Invalid IDs resolve without SQL; absent persisted users also return None."""
+    identity = _persisted_id(user_id)
+    return None if identity is None else _read_user(USER_BY_ID, (identity,))
 
 
-# ---------- registration ----------
+def email_exists(email):
+    return get_user_by_email(email) is not None
 
-# special characters, lower/uppercase addition for passwords maybe.
-# feedback: accessibility (speech access, colorblind, etc.)
 
 def validate_registration(form):
     """Check the submitted form and return {field_name: message}.
@@ -154,7 +138,7 @@ def validate_registration(form):
 
     if not email:
         errors["email"] = "Enter your email address."
-    elif not EMAIL_PATTERN.match(email):
+    elif len(email) > MAX_EMAIL_LENGTH or not EMAIL_PATTERN.match(email):
         errors["email"] = "Please enter a valid email address."
     elif len(email) > MAX_EMAIL_LENGTH:
         errors["email"] = "That email address is too long."
@@ -175,43 +159,41 @@ def validate_registration(form):
 
 
 def create_user(form):
-    """Save a new user and return it. Call only after validate_registration()
-    returned no errors.
+    """After validation, insert/commit and return User with the generated ID.
 
-    Raises EmailAlreadyExists if the email was taken between validation and
-    the insert (the UNIQUE index on User.email is the final safeguard).
+    A preflight email check is not authority: concurrent duplicates are caught
+    by User.email's unique constraint. No caller-provided user_id is inserted.
     """
+    name = (form.get("name") or "").strip()
     email = normalise_email(form.get("email"))
-    name = form.get("name").strip()
     password_hash = generate_password_hash(form.get("password"))
-
+    created_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     connection = get_db()
-    cursor = None
     try:
-        cursor = connection.cursor()
-        cursor.execute(
-            f"INSERT INTO `{USER_TABLE}` (name, email, password_hash, created_at) "
-            "VALUES (%s, %s, %s, NOW())",
-            (name, email, password_hash),
-        )
-        connection.commit()  # db.py never commits for us
-        user_id = cursor.lastrowid
-    except mysql.connector.IntegrityError as error:
-        _rollback(connection)
-        if error.errno == errorcode.ER_DUP_ENTRY:
-            raise EmailAlreadyExists(email) from None
-        raise _db_error() from None
+        if connection.autocommit is not False or connection.in_transaction:
+            raise DatabaseError("Finish the caller's transaction before registering a user.")
     except mysql.connector.Error:
-        _rollback(connection)
-        raise _db_error() from None
-    finally:
-        if cursor is not None:
-            cursor.close()
+        raise DatabaseError("Could not inspect the registration transaction.") from None
+    try:
+        connection.start_transaction()
+        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
+            cursor.execute(CREATE_USER, (name, email, password_hash, created_at))
+            identity = _persisted_id(cursor.lastrowid)
+            if identity is None:
+                raise DatabaseError("Registration did not return a valid database user ID.")
+        connection.commit()
+        return User(id=identity, name=name, email=email, password_hash=password_hash, created_at=created_at)
+    except BaseException as error:
+        try:
+            connection.rollback()
+        except mysql.connector.Error:
+            raise DatabaseError("Registration rollback failed; check the outcome before retrying.") from None
+        if isinstance(error, mysql.connector.Error):
+            if error.errno == 1062:
+                raise EmailAlreadyExists() from None
+            raise DatabaseError("Could not register the account; check the outcome before retrying.") from None
+        raise
 
-    return User(id=user_id, name=name, email=email, password_hash=password_hash)
-
-
-# ---------- login ----------
 
 def validate_login(form):
     """CAR-33: both fields are required (spaces only counts as empty)."""
@@ -223,17 +205,19 @@ def validate_login(form):
     return errors
 
 
-def authenticate(email, password):
-    """CAR-34: return the User if the details are correct, otherwise None.
+# Preserve the existing Werkzeug hash formats; never rehash/reset stored users
+# during login. Unknown emails still perform synthetic hash verification work.
+_DUMMY_HASH = generate_password_hash("not-a-real-password")
 
-    The caller shows the same message for "no such email" and "wrong
-    password" (CAR-35), so this returns None for both.
-    """
+
+def authenticate(email, password):
     user = get_user_by_email(email)
     if user is None:
         # Hash anyway so a missing email takes about as long as a wrong password.
         check_password_hash(_DUMMY_HASH, password or "")
         return None
-    if check_password_hash(user.password_hash, password or ""):
-        return user
-    return None
+    try:
+        return user if check_password_hash(user.password_hash, password or "") else None
+    except ValueError:
+        # Malformed/unsupported stored hashes fail closed without being logged.
+        return None

@@ -1,8 +1,12 @@
 import os
 
 from dotenv import load_dotenv
-from flask import Flask, flash, redirect, render_template, request, url_for
-from flask_login import LoginManager, current_user, login_required, login_user
+from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
+from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+
+from services.csrf import clear_csrf_token, csrf_protect, init_app as init_csrf
+from services import application_service, interview_service
+from services.interview_time import parse_dublin_datetime, utc_to_dublin
 
 from db import DatabaseError, init_app
 from services.auth_service import (
@@ -15,10 +19,11 @@ from services.auth_service import (
     validate_registration,
 )
 from tracker_data import (
+    DISPLAY_DATE,
     PRACTICE_QUESTIONS,
     STATUS_THEMES,
-    VISIBLE_INTERVIEWS,
     load_tracker_page,
+    load_interviews_page,
 )
 
 load_dotenv()
@@ -27,7 +32,11 @@ load_dotenv()
 app = Flask(__name__)
 init_app(app)
 
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key or not secret_key.strip():
+    raise RuntimeError("SECRET_KEY must be configured before starting Careerly.")
+app.config["SECRET_KEY"] = secret_key
+init_csrf(app)
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -35,11 +44,34 @@ login_manager.login_message = "Please log in to continue."
 login_manager.login_message_category = "danger"
 
 
+@app.errorhandler(DatabaseError)
+def database_unavailable(error):
+    return render_template("service-unavailable.html"), 503
+
+
 @login_manager.user_loader
 def load_user(user_id):
     """Flask-Login calls this on every request with the id from the session
     cookie. Returning None means "not logged in"."""
-    return get_user_by_id(user_id)
+    try:
+        return get_user_by_id(user_id)
+    except DatabaseError:
+        # Preserve the signed session identity for recovery on the next request.
+        # This is an unavailable account lookup, not invalid credentials.
+        g.auth_database_unavailable = True
+        return None
+
+
+@app.before_request
+def account_service_availability():
+    if request.endpoint == "static":
+        return None
+    # Resolve Flask-Login once before a protected view or template can use it.
+    current_user.is_authenticated
+    if getattr(g, "auth_database_unavailable", False):
+        public_read = request.method in ("GET", "HEAD") and request.endpoint in ("index", "login", "register")
+        if not public_read and request.endpoint != "logout":
+            return database_unavailable(None)
 
 
 def safe_next_url(target):
@@ -91,8 +123,174 @@ def tracker():
         role=role,
         practice_questions=PRACTICE_QUESTIONS,
         status_themes=STATUS_THEMES,
-        visible_interviews=VISIBLE_INTERVIEWS,
     ), status_code
+
+
+NOTES_SAVE_FAILED = "Could not save your notes. Check your tracker before retrying."
+
+
+@app.route("/applications/<int:application_id>/notes", methods=["POST"])
+@login_required
+@csrf_protect
+def save_application_notes(application_id):
+    """Save the notes typed into an application's Notes panel; answers the tracker's editor in JSON."""
+    try:
+        saved = application_service.update_notes(
+            current_user_id(), application_id, request.form.get("notes"))
+    except application_service.ApplicationNotFound:
+        abort(404)
+    except application_service.ApplicationValidationError as error:
+        if "notes" not in error.errors:
+            abort(404)  # an out-of-range id in the address is simply not one of the user's
+        return jsonify(error=error.errors["notes"]), 400
+    except DatabaseError:
+        return jsonify(error=NOTES_SAVE_FAILED), 503
+    return jsonify(notes=saved["notes"] or "",
+                   updated_text=utc_to_dublin(saved["updated_at"]).strftime(DISPLAY_DATE))
+
+
+def interview_form_values():
+    """Whitelist editable fields; ownership/association never come from the form."""
+    form = {name: request.form.get(name, "") for name in
+            ("date", "time", "interview_type", "venue_or_link", "notes")}
+    form["outcome"] = request.form.get("outcome", interview_service.DEFAULT_OUTCOME)
+    return form
+
+
+def interview_save_values(form):
+    """Shared create/edit wall-clock parsing; the service validates other fields."""
+    return dict(scheduled_at=parse_dublin_datetime(form["date"], form["time"]),
+                interview_type=form["interview_type"], outcome=form["outcome"],
+                venue_or_link=form["venue_or_link"] or None, notes=form["notes"] or None)
+
+
+@app.route("/applications/<int:application_id>/interviews/new", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def add_interview(application_id):
+    user_id = current_user_id()
+    form = interview_form_values()
+
+    def show_form(errors=None, status=200, application=None):
+        return render_template(
+            "interviews/form.html", mode="create", application=application,
+            form=form, errors=errors or {},
+            action_url=url_for("add_interview", application_id=application_id),
+            cancel_url=url_for("tracker"),
+        ), status
+
+    # Do not use any posted user_id/application_id/interview_id for authority.
+    try:
+        application = interview_service.get_owned_application(user_id, application_id)
+    except (interview_service.InterviewNotFound, interview_service.InterviewValidationError):
+        abort(404)
+    except DatabaseError:
+        return show_form({"_form": "Could not load the application. Please try again later."}, 503)
+
+    if request.method == "POST":
+        try:
+            interview_service.create_interview(
+                user_id, application_id, **interview_save_values(form),
+            )
+        except interview_service.InterviewNotFound:
+            abort(404)  # Parent could have disappeared after the preflight read.
+        except interview_service.InterviewValidationError as error:
+            return show_form(error.errors, 400, application)
+        except DatabaseError:
+            return show_form({"_form": (
+                "Could not save the interview. Check your Interviews page before retrying."
+            )}, 503, application)
+        flash("Interview added.", "success")
+        return redirect(url_for("interviews"))
+    return show_form(application=application)
+
+
+def owned_interview_or_404(interview_id):
+    try:
+        return interview_service.get_interview(current_user_id(), interview_id)
+    except (interview_service.InterviewNotFound, interview_service.InterviewValidationError):
+        abort(404)
+
+
+@app.route("/interviews/<int:interview_id>/edit", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def edit_interview(interview_id):
+    interview = owned_interview_or_404(interview_id)
+    local = utc_to_dublin(interview["scheduled_at"])
+    form = interview_form_values() if request.method == "POST" else dict(
+        date=local.strftime("%Y-%m-%d"), time=local.strftime("%H:%M:%S"),
+        interview_type=interview["interview_type"], venue_or_link=interview["venue_or_link"] or "",
+        notes=interview["notes"] or "", outcome=interview["outcome"],
+    )
+
+    def show_form(errors=None, status=200):
+        return render_template("interviews/form.html", mode="edit", application=interview,
+                               form=form, errors=errors or {},
+                               action_url=url_for("edit_interview", interview_id=interview_id),
+                               cancel_url=url_for("interviews")), status
+
+    if request.method == "POST":
+        try:
+            interview_service.update_interview(
+                current_user_id(), interview_id, **interview_save_values(form))
+        except interview_service.InterviewNotFound:
+            abort(404)
+        except interview_service.InterviewValidationError as error:
+            return show_form(error.errors, 400)
+        except DatabaseError:
+            return show_form({"_form": "Could not save the interview. Check your Interviews page before retrying."}, 503)
+        flash("Interview updated.", "success")
+        return redirect(url_for("interviews"))
+    return show_form()
+
+
+@app.route("/interviews/<int:interview_id>/delete", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def delete_interview(interview_id):
+    interview = owned_interview_or_404(interview_id)
+    error = None
+    if request.method == "POST":
+        try:
+            # The service locks and rechecks ownership inside its write transaction.
+            interview_service.delete_interview(current_user_id(), interview_id)
+        except interview_service.InterviewNotFound:
+            abort(404)
+        except DatabaseError:
+            error = "Could not delete the interview. Check your Interviews page before retrying."
+        else:
+            flash("Interview deleted.", "success")
+            return redirect(url_for("interviews"))
+    return render_template("interviews/delete.html", interview=interview,
+                           scheduled_local=utc_to_dublin(interview["scheduled_at"]),
+                           error=error), 503 if error else 200
+
+
+@app.post("/interviews/<int:interview_id>/notes")
+@login_required
+@csrf_protect
+def save_interview_notes(interview_id):
+    user_id = current_user_id()
+    try:
+        # Preflight first, so valid-CSRF foreign requests return 404 even if
+        # their input is invalid. The service rechecks under its write lock.
+        interview_service.get_interview(user_id, interview_id)
+    except (interview_service.InterviewNotFound, interview_service.InterviewValidationError):
+        return jsonify(ok=False, message="Interview not found."), 404
+    except DatabaseError:
+        return jsonify(ok=False, message="Could not load the interview. Please try again later."), 503
+    if "notes" not in request.form:
+        return jsonify(ok=False, errors={"notes": "Supply notes, or an empty value to clear them."}), 400
+    try:
+        saved = interview_service.update_interview_notes(user_id, interview_id, notes=request.form["notes"])
+    except interview_service.InterviewNotFound:
+        return jsonify(ok=False, message="Interview not found."), 404
+    except interview_service.InterviewValidationError as error:
+        return jsonify(ok=False, errors=error.errors), 400
+    except DatabaseError:
+        return jsonify(ok=False, message="Could not save notes. Check saved notes before retrying."), 503
+    return jsonify(ok=True, interview_id=saved["interview_id"], notes=saved["notes"])
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -131,8 +329,9 @@ def browse():
 
 
 @app.route("/interviews")
+@login_required
 def interviews():
-    return render_template("interviews.html")
+    return render_template("interviews/index.html", **load_interviews_page(current_user_id()))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -161,7 +360,15 @@ def login():
 
     return render_template("login.html", errors={}, form={})
 
-@app.errorhandler(DatabaseError)
-def database_unavailable(error):
-    flash(str(error), "danger")
-    return render_template("index.html"), 503
+
+@app.route("/logout", methods=["POST"])
+@csrf_protect
+def logout():
+    logout_user()
+    session.pop("user_id", None)  # Legacy pre-Flask-Login authentication key.
+    session.pop("_remember_seconds", None)
+    # Keep this marker until Flask-Login's response hook deletes the cookie.
+    # Do not session.clear() after setting it, which would lose that operation.
+    session["_remember"] = "clear"
+    clear_csrf_token()
+    return redirect(url_for("login"))

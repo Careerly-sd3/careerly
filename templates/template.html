@@ -26,10 +26,11 @@
             ('interviews', 'Interviews', 'bi-person-video3')
             ] %}
 
+            {% set active_endpoint = 'interviews' if request.endpoint in ('interviews', 'edit_interview', 'delete_interview') else 'tracker' if request.endpoint == 'add_interview' else request.endpoint %}
             <div id="nav-links" class="btn-group">
                 {% for endpoint, label, icon in nav_items %}
-                <a class="{{ 'btn-solid' if request.endpoint == endpoint else 'btn-outline' }} theme-inverse"
-                    href="{{ url_for(endpoint) }}">
+                <a class="{{ 'btn-solid' if active_endpoint == endpoint else 'btn-outline' }} theme-inverse"
+                    href="{{ url_for(endpoint) }}"{% if active_endpoint == endpoint %} aria-current="page"{% endif %}>
                     <i class="bi {{ icon }}" aria-hidden="true"></i>
                     <span class="nav-option-text anim">&nbsp;{{ label }}</span>
                 </a>
@@ -37,20 +38,18 @@
             </div>
 
             {% if current_user.is_authenticated %}
-            <button class="btn-solid btn-styled theme-inverse" data-bs-toggle="menu">
-                <i class="bi bi-person-fill"></i>
-                {{ current_user.name }}
-            </button>
-            <div class="menu" data-bs-theme="light">
-                <a class="menu-item" href="#">
-                    <i class="bi bi-person-gear menu-item-icon"></i>
-                    Profile
-                </a>
-                <hr class="menu-divider">
-                <a class="menu-item theme-danger" href="#">
-                    <i class="bi bi-box-arrow-left menu-item-icon"></i>
-                    Sign Out
-                </a>
+            <div class="account-controls d-flex flex-wrap align-items-center gap-3">
+                <span class="account-label d-inline-flex align-items-center gap-2" aria-label="Account for {{ current_user.name }}">
+                    <i class="bi bi-person-fill" aria-hidden="true"></i>
+                    <span id="account-name">{{ current_user.name }}</span>
+                </span>
+                <form id="logout-form" method="post" action="{{ url_for('logout') }}" class="m-0">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() if csrf_token is callable else csrf_token }}">
+                    <button type="submit" class="btn-outline theme-inverse">
+                        <i class="bi bi-box-arrow-left" aria-hidden="true"></i>
+                        Logout
+                    </button>
+                </form>
             </div>
             {% else %}
             <ul class="nav nav-underline">
@@ -68,6 +67,7 @@
         {% endfor %}
         {% endwith %}
 
+        {% if g.auth_database_unavailable|default(false) %}<div class="alert theme-danger" role="status">Account service is temporarily unavailable. Your session has been preserved.</div>{% endif %}
         {% block main %}{% endblock %}
     </main>
 

@@ -1,0 +1,123 @@
+{% extends "template.html" %}
+{#
+CAR-87/CAR-88/CAR-89 shared application-linked create and edit form.
+Context for routes:
+  mode: create (default) or edit
+  application: trusted, owner-scoped job_title/company display context
+  form: local Europe/Dublin strings keyed by date, time, interview_type,
+        venue_or_link, notes, outcome; POST values take precedence over prefill
+  errors: field -> message, optionally scheduled_at for the combined datetime
+  action_url / cancel_url: trusted URLs built by the route, not posted values
+  csrf_token: token string or the services/csrf.py callable token provider
+No CSRF generator/validator is implemented here. Save stays disabled until a
+trusted action URL and token are supplied. Routes must still verify CSRF and
+ownership and convert Dublin wall-clock input to UTC before calling the service.
+#}
+{% set editing = mode|default('create') == 'edit' %}
+{% set form = form|default({}, true) %}
+{% set errors = errors|default({}, true) %}
+{% set types = ('online', 'phone', 'technical', 'onsite') %}
+{% set outcomes = ('Pending', 'Passed', 'Failed') %}
+{% set selected_type = form.get('interview_type', '') %}
+{% set selected_outcome = form.get('outcome', 'Pending') %}
+{% if selected_outcome is none %}{% set selected_outcome = 'Pending' %}{% endif %}
+{% set token = csrf_token() if csrf_token is defined and csrf_token is callable else csrf_token|default('', true) %}
+{% set target = action_url|default('', true) %}
+
+{% block title %}{{ 'Edit interview' if editing else 'Add interview' }}{% endblock %}
+
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/interviews.css') }}">
+{% endblock %}
+
+{% macro error_message(name) -%}
+{% if errors.get(name) %}
+<p id="interview-{{ name }}-error" class="auth-error">{{ errors[name] }}</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro error_attributes(name, help_id='') -%}
+{% if errors.get(name) %}aria-invalid="true"{% endif %}
+{% if errors.get(name) or help_id %}aria-describedby="{{ help_id }}{% if help_id and errors.get(name) %} {% endif %}{% if errors.get(name) %}interview-{{ name }}-error{% endif %}"{% endif %}
+{%- endmacro %}
+
+{% block main %}
+<section class="auth-card interview-form-card m-auto">
+    <h1 class="fs-lg">{{ 'Edit interview' if editing else 'Add interview' }}</h1>
+    {% if application is defined and application %}
+    <p class="auth-intro">{{ application.job_title }} &middot; {{ application.company }}</p>
+    {% endif %}
+    <p id="interview-timezone-help" class="fs-sm">Enter the local date and time in <strong>Europe/Dublin</strong>.</p>
+
+    {% if errors %}
+    <div class="alert theme-danger" role="alert">Please correct the highlighted fields.</div>
+    {% endif %}
+    {{ error_message('_form') }}
+    {{ error_message('scheduled_at') }}
+
+    <form id="interview-form" method="post"{% if target %} action="{{ target }}"{% endif %} class="d-flex flex-column gap-5">
+        {% if token %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endif %}
+
+        <div class="auth-field">
+            <label for="interview-date">Date (Europe/Dublin) <span class="fs-sm">(required)</span></label>
+            <input id="interview-date" name="date" type="date" value="{{ form.get('date', '') }}" required
+                {{ error_attributes('date', 'interview-timezone-help' ~ (' interview-scheduled_at-error' if errors.get('scheduled_at') else '')) }}
+                {% if errors.get('scheduled_at') and not errors.get('date') %}aria-invalid="true"{% endif %}>
+            {{ error_message('date') }}
+        </div>
+
+        <div class="auth-field">
+            <label for="interview-time">Time (Europe/Dublin) <span class="fs-sm">(required)</span></label>
+            <input id="interview-time" name="time" type="time" step="1" value="{{ form.get('time', '') }}" required
+                {{ error_attributes('time', 'interview-timezone-help' ~ (' interview-scheduled_at-error' if errors.get('scheduled_at') else '')) }}
+                {% if errors.get('scheduled_at') and not errors.get('time') %}aria-invalid="true"{% endif %}>
+            {{ error_message('time') }}
+        </div>
+
+        <div class="auth-field">
+            <label for="interview-type">Type <span class="fs-sm">(required)</span></label>
+            <select id="interview-type" name="interview_type" required {{ error_attributes('interview_type') }}>
+                {% if selected_type not in types %}
+                <option value="{{ selected_type or '' }}" selected disabled>{{ 'Unsupported selection: ' ~ selected_type if selected_type else 'Choose a type' }}</option>
+                {% endif %}
+                {% for value in types %}
+                <option value="{{ value }}"{% if selected_type == value %} selected{% endif %}>{{ value|capitalize }}</option>
+                {% endfor %}
+            </select>
+            {{ error_message('interview_type') }}
+        </div>
+
+        <div class="auth-field">
+            <label for="interview-venue">Venue or link <span class="fs-sm">(optional)</span></label>
+            <input id="interview-venue" name="venue_or_link" type="text" maxlength="500" value="{{ form.get('venue_or_link') or '' }}"
+                {{ error_attributes('venue_or_link') }}>
+            {{ error_message('venue_or_link') }}
+        </div>
+
+        <div class="auth-field">
+            <label for="interview-notes">Notes <span class="fs-sm">(optional)</span></label>
+            <textarea id="interview-notes" name="notes" rows="5" {{ error_attributes('notes') }}>{{ form.get('notes') or '' }}</textarea>
+            {{ error_message('notes') }}
+        </div>
+
+        <div class="auth-field">
+            <label for="interview-outcome">Outcome</label>
+            <select id="interview-outcome" name="outcome" required {{ error_attributes('outcome') }}>
+                {% if selected_outcome not in outcomes %}
+                <option value="{{ selected_outcome }}" selected disabled>{{ 'Unsupported selection: ' ~ selected_outcome if selected_outcome else 'Choose an outcome' }}</option>
+                {% endif %}
+                {% for value in outcomes %}
+                <option value="{{ value }}"{% if selected_outcome == value %} selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+            {{ error_message('outcome') }}
+        </div>
+
+        <div class="d-flex flex-wrap gap-3 align-items-center">
+            <button type="submit" class="btn-solid theme-inverse"{% if not target or not token %} disabled{% endif %}>Save</button>
+            <a id="interview-cancel" class="btn-outline theme-inverse" href="{{ cancel_url|default(url_for('tracker'), true) }}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

@@ -1,0 +1,384 @@
+/* Layout switches measure the page section, not the window, matching Bootstrap's g-col-* classes. */
+.tracker {
+    container: tracker / inline-size;
+}
+
+/* Only the standalone listing: replace body gap + section margin with 28px. */
+body:has(> main > .interviews-page) {
+    row-gap: 1.75rem !important;
+}
+main > .interviews-page {
+    margin-block-start: 0;
+}
+/* Keep the shared gap-12 (3rem) separation before the footer unchanged. */
+body:has(> main > .interviews-page) > footer {
+    margin-block-start: calc(3rem - 1.75rem);
+}
+
+/* ---------- Header: title, Add button, status tiles ---------- */
+
+.tracker-header {
+    display: grid;
+    grid-template-areas: "title" "add" "tiles";
+    align-items: center;
+    gap: 1rem 1.5rem;
+}
+
+/* The status peaks stand on the table: cancel the section's gap under the header
+   (the tiles are always the header's bottom edge). 1.25rem = the gap-6 on .tracker. */
+.tracker > .tracker-header { margin-block-end: -1.25rem; }
+
+.tracker-header > h1     { grid-area: title; }
+.tracker-header > button { grid-area: add; }
+.status-tiles            { grid-area: tiles; }
+
+.status-tiles {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 7rem));  /* small peaks, packed together */
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+@container tracker (width < 340px) {
+    .status-tiles { grid-template-columns: repeat(2, minmax(0, 7rem)); }
+}
+
+/* Each tile is a small mountain peak: pastel fill, darker ridge line, count and label inside. */
+.status-tile {
+    --tile-fill: #cff4fc;
+    --tile-ridge: #6edff6;
+    --tile-text: #055160;
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 3.5rem;
+    padding-block-end: 0.2rem;
+    text-align: center;
+    line-height: 1.2;
+    color: var(--tile-text);
+}
+
+.status-tile[data-status="Interview"] { --tile-fill: #fff3cd; --tile-ridge: #ffcd39; --tile-text: #664d03; }
+.status-tile[data-status="Offer"]     { --tile-fill: #d1e7dd; --tile-ridge: #75b798; --tile-text: #0a3622; }
+.status-tile[data-status="Rejected"]  { --tile-fill: #f8d7da; --tile-ridge: #ea868f; --tile-text: #58151c; }
+
+.status-tile-art {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.status-tile-fill  { fill: var(--tile-fill); fill-opacity: 0.85; }  /* a little see-through */
+.status-tile-ridge { fill: none; stroke: var(--tile-ridge); stroke-width: 2; stroke-linejoin: round; }
+
+@container tracker (width >= 576px) {
+    .tracker-header {
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "title add" "tiles tiles";
+    }
+}
+
+@container tracker (width >= 1024px) {
+    .tracker-header {
+        grid-template-columns: auto minmax(0, 1fr) 16rem;
+        grid-template-areas: "title tiles add";
+    }
+}
+
+/* ---------- Upcoming interview cards on the tracker ---------- */
+
+.interview-card .card-body { gap: 0.75rem; }
+.interview-location { overflow-wrap: anywhere; }
+
+/* One column: practice goes after "Show more". Two columns: practice sits beside the cards. */
+.practice-card { order: 1; }
+.practice-body { flex: 1 1 0; }
+
+@container tracker (width >= 768px) {
+    .practice-card { order: 0; }
+}
+
+/* ---------- Always-visible scrollbar (macOS hides it by default) ---------- */
+
+.visible-scroll::-webkit-scrollbar { width: 0.75rem; }
+.visible-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
+.visible-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border: 3px solid #f3f4f6; border-radius: 999px; }
+
+@supports not selector(::-webkit-scrollbar) {
+    .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
+}
+
+/* ---------- Column headings that are dropdown filters ----------
+   The real <select> sits invisibly on top of the heading, so clicking it opens the dropdown. */
+
+.filter-head {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.filter-head select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.filter-head:hover,
+.filter-head:focus-within,
+.filter-head.is-active {
+    text-decoration: underline;
+    text-underline-offset: 0.25em;
+}
+
+/* ---------- Applications table ---------- */
+
+.applications-card,
+.interviews-card {
+    background-color: var(--bs-bg-body);  /* the phone layout clears Bootstrap's cell background */
+}
+
+.applications-scroll {
+    max-height: 21rem;  /* about five rows, then it scrolls */
+    scrollbar-gutter: stable;  /* opening a row's details doesn't shift the columns */
+}
+
+/* Blank ruled rows that tracker.js adds under the last application to fill the panel. */
+.applications-table .filler-row { pointer-events: none; }
+
+/* Side by side with the interviews: as tall as the practice card (tracker.js sets the height). */
+@container tracker (width >= 768px) {
+    .applications-scroll {
+        height: var(--practice-card-height, auto);
+        max-height: none;
+    }
+}
+
+.applications-table [data-col="applied"],
+.applications-table [data-col="status"] {
+    white-space: nowrap;
+}
+
+/* The table heading (filters) sticks inside the table, but must slide UNDER the page's sticky
+   header: both get Bootstrap's sticky z-index and the heading comes later, so it would paint on top. */
+.applications-table > thead { z-index: 1; }
+
+/* Row buttons (Details, Add interview, Edit, Delete) wrap on phones and tablets,
+   but stay on one line on desktop. */
+.row-actions { flex-wrap: wrap; }
+
+@container tracker (width >= 1024px) {
+    .row-actions { flex-wrap: nowrap; }
+
+    /* The Actions column only takes the room its buttons need (spare width goes to the
+       text columns), so the buttons sit at the right. 0.75rem = the details row's side
+       padding, so Delete lines up with the right edge of the panels under it. */
+    .applications-table td[data-col="actions"] {
+        width: 1%;
+        padding-inline-end: 0.75rem;
+    }
+}
+
+/* Phones: the heading row becomes filter buttons and each row a small card:
+   company ............ status
+   role
+   applied   next step   actions */
+@container tracker (width < 640px) {
+    .applications-scroll { max-height: none; }
+
+    .applications-table,
+    .applications-table > thead,
+    .applications-table > tbody {
+        display: block;
+    }
+
+    .applications-table > thead > tr {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        border-block-end: var(--bs-border-width) solid var(--bs-border-color);
+    }
+
+    .applications-table > thead > tr > th {
+        padding: 0;
+        border: 0;
+    }
+
+    .applications-table > thead > tr > th:not(:has(.filter-head)) {
+        display: none;
+    }
+
+    .applications-table .filter-head {
+        min-height: 2.25rem;
+        padding-inline: 0.85rem;
+        border: var(--bs-border-width) solid var(--bs-border-color);
+        border-radius: 999px;
+        font-size: 0.875rem;
+        text-decoration: none;
+    }
+
+    .applications-table .filter-head.is-active {
+        border-color: currentColor;
+        font-weight: 600;
+    }
+
+    .applications-table > tbody > tr {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-areas:
+            "company status"
+            "role role"
+            "applied next"
+            "actions actions";
+        gap: 0.15rem 0.75rem;
+        padding: 0.85rem 1rem;
+    }
+
+    .applications-table > tbody > tr + tr {
+        border-block-start: var(--bs-border-width) solid var(--bs-border-color);
+    }
+
+    .applications-table > tbody > tr > td {
+        padding: 0;
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    /* The "no matches" message */
+    .applications-table > tbody > tr:has(> td[colspan]) {
+        display: block;
+    }
+
+    .applications-table [data-col="company"] { grid-area: company; font-weight: 700; }
+    .applications-table [data-col="status"]  { grid-area: status; justify-self: end; }
+    .applications-table [data-col="role"]    { grid-area: role; color: var(--bs-fg-3); margin-block-end: 0.5rem; }
+    .applications-table [data-col="applied"] { grid-area: applied; }
+    .applications-table [data-col="next"]    { grid-area: next; }
+    .applications-table [data-col="actions"] { grid-area: actions; align-self: end; }
+
+    .applications-table [data-col="applied"]::before { content: "Applied"; }
+    .applications-table [data-col="next"]::before    { content: "Next step"; }
+
+    .applications-table [data-col="applied"]::before,
+    .applications-table [data-col="next"]::before {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        color: var(--bs-fg-3);
+    }
+}
+
+/* Shared shrink boundaries keep overflow inside each table region. */
+.tracker, .tracker > *, .tracker .grid > *, .tracker .card,
+.tracker .card-body, .tracker .d-flex > *, .tracker .table-card {
+    min-width: 0;
+    max-width: 100%;
+}
+.tracker { overflow-wrap: anywhere; }
+.tracker .table-responsive { max-width: 100%; overflow-x: auto; }
+.tracker th, .tracker td { overflow-wrap: anywhere; }
+.interviews-table details { min-width: 0; max-width: 100%; }
+.interview-notes > .interview-notes-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    list-style: none;
+    cursor: pointer;
+    transition: none;
+}
+.interview-notes-toggle::marker { content: ""; }
+.interview-notes-toggle::-webkit-details-marker { display: none; }
+.interview-notes-toggle:hover { background-color: #e2e8f0; color: #172033; }
+.interview-notes-toggle:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+/* Both labels share a grid slot, so changing the label cannot resize a column. */
+.notes-toggle-label { display: inline-grid; }
+.notes-toggle-label > span { grid-area: 1 / 1; }
+.interview-notes:not([open]) .notes-open-label,
+.interview-notes[open] .notes-closed-label { visibility: hidden; }
+.interview-notes-editor {
+    display: flex; flex-direction: column; min-width: 0;
+    margin-block-start: 0.5rem;
+    inline-size: 100%; max-inline-size: 100%; box-sizing: border-box;
+    padding: 0.75rem; background: #fafafa; color: #172033;
+    border: 1px solid #e1e4e8; border-radius: 0.625rem;
+}
+.interview-notes-editor[hidden], .interview-notes-editor [hidden] { display: none; }
+.notes-panel-heading {
+    display: flex; align-items: center; gap: 0.5rem; margin: 0;
+    font-size: 0.875rem; font-weight: 600; letter-spacing: 0.06em; color: #60666f;
+}
+.notes-view-mode { min-block-size: 10rem; justify-content: space-between; }
+.notes-view-mode, .notes-edit-mode { margin-block-start: 0.5rem; display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.notes-read-text {
+    white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto;
+    max-block-size: 7rem;
+    font-size: 1rem; line-height: 1.5;
+}
+.interview-notes-editor textarea {
+    block-size: 7rem; min-block-size: 7rem; max-block-size: 7rem;
+    width: 100%; min-width: 0; box-sizing: border-box; resize: none; overflow-y: auto;
+    font: inherit; line-height: 1.5; padding: 0.625rem; color: #172033; background: white;
+    border: 1px solid #aeb5bf; border-radius: 0.5rem;
+}
+.notes-editor-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.interview-notes-editor .notes-save,
+.interview-notes-editor .notes-cancel,
+.interview-notes-editor .notes-edit {
+    min-block-size: 2.5rem; padding: 0.5rem 0.75rem;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    border-radius: 0.5rem; font-size: 1rem; transition: none;
+}
+.interview-notes-editor .notes-save { color: white; background-color: #00843d; }
+.interview-notes-editor .notes-save:hover { background-color: #006f33; }
+.interview-notes-editor .notes-cancel,
+.interview-notes-editor .notes-edit { color: #48505b; background-color: #f0f2f4; }
+.interview-notes-editor .notes-cancel:hover,
+.interview-notes-editor .notes-edit:hover { background-color: #e1e5e9; }
+.interview-notes-editor button:focus-visible,
+.interview-notes-editor textarea:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.interview-notes-editor .notes-status { margin: 0; overflow-wrap: anywhere; }
+.interview-notes-editor .notes-status:not(:empty) { padding-block-start: 0.75rem; }
+.interview-notes-editor .notes-status[data-state="error"] { color: #9f1239; }
+.interview-notes-editor .notes-status[data-state="success"] { color: #166534; }
+.interviews-table td, .interviews-table th { vertical-align: top; }
+.interview-row-actions { display: flex; flex-wrap: nowrap; gap: 0.5rem; }
+.interview-row-actions > a { white-space: nowrap; flex-shrink: 0; }
+@container tracker (width >= 640px) {
+    .applications-table { min-width: 48rem; }
+    /* Reserve every column before notes open; content cannot affect sizing. */
+    .interviews-table { table-layout: fixed; width: 100%; min-width: 72rem; }
+    .interviews-table col:nth-child(1) { width: 16%; }
+    .interviews-table col:nth-child(2) { width: 14%; }
+    .interviews-table col:nth-child(3) { width: 7%; }
+    .interviews-table col:nth-child(4) { width: 7%; }
+    .interviews-table col:nth-child(5) { width: 8%; }
+    .interviews-table col:nth-child(6) { width: 22%; }
+    .interviews-table col:nth-child(7) { width: 26%; }
+    .tracker thead th { overflow-wrap: normal; }
+    .applications-table [data-col="company"], .applications-table [data-col="role"] {
+        min-width: 10rem;
+        max-width: 24rem;
+    }
+}
+@container tracker (width < 640px) {
+    .interviews-table colgroup { display: none; }
+    .interviews-table, .interviews-table > tbody { display: block; }
+    .interviews-table > thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+    .interviews-table > tbody > tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; padding: 1rem; }
+    .interviews-table > tbody > tr + tr { border-block-start: 1px solid var(--bs-border-color); }
+    .interviews-table > tbody > tr > * { min-width: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+    .interviews-table [data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; font-weight: 600; }
+}

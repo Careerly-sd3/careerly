@@ -7,6 +7,7 @@ import ssl
 import tempfile
 import unittest
 from unittest.mock import call, patch
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from flask import Flask
 import mysql.connector
@@ -167,17 +168,39 @@ class DatabaseTests(unittest.TestCase):
 
     def test_application_import_and_existing_routes_do_not_connect(self):
         # Main loads dotenv on import; never read private files in mocked tests.
-        with patch("dotenv.load_dotenv", return_value=False):
+        with patch("dotenv.load_dotenv", return_value=False), patch.dict(
+            os.environ, SECRET_KEY="unit-test-only-session-key"
+        ):
             module = importlib.import_module("app")
-        with patch.dict(os.environ, {}, clear=True):
+        auth = importlib.import_module("services.auth_service")
+        user = auth.User(
+            id=101, name="Synthetic User", email="synthetic@example.invalid",
+            password_hash="synthetic-unusable-login-marker",
+        )
+        page = {
+            "applications": [], "interviews": [], "practice_meta": "",
+            "status_counts": {}, "total_applications": 0,
+            "company_options": [], "role_options": [],
+        }
+        with patch.dict(os.environ, {}, clear=True), patch.dict(
+            module.app.config, TESTING=True, SECRET_KEY="unit-test-only-session-key"
+        ), patch.object(module, "get_user_by_id", return_value=user), patch.object(
+            module, "load_tracker_page", return_value=page
+        ) as tracker:
             client = module.app.test_client()
             self.assertEqual(client.get("/").status_code, 200)
             response = client.get("/tracker")
             self.assertEqual(response.status_code, 302)
-            self.assertTrue(response.location.endswith("/login"))
+            destination = urlsplit(response.location)
+            self.assertEqual(destination.path, "/login")
+            self.assertEqual(parse_qs(destination.query), {"next": ["/tracker"]})
+            self.assertEqual(destination.query, urlencode({"next": "/tracker"}))
+            tracker.assert_not_called()
             with client.session_transaction() as session:
-                session["user_id"] = 1
+                session["_user_id"] = user.get_id()
+                session["_fresh"] = True
             self.assertEqual(client.get("/tracker").status_code, 200)
+            tracker.assert_called_once_with(user.id, status="", company="", role="")
         self.connect.assert_not_called()
 
 

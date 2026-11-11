@@ -1,0 +1,61 @@
+.interview-form-card {
+    width: min(100%, 42rem);
+}
+
+.interview-form-card, .interview-confirmation {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.interview-form-card form, .interview-form-card .auth-field {
+    min-width: 0;
+}
+
+.interview-form-card input, .interview-form-card select, .interview-form-card textarea {
+    box-sizing: border-box;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.interview-confirmation form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+@media (max-width: 575.98px) {
+    .interview-form-card, .interview-confirmation { padding: 1rem; }
+}
+
+.interview-form-card .auth-field select,
+.interview-form-card .auth-field textarea {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    font: inherit;
+    color: white;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 0.5rem;
+}
+
+.interview-form-card .auth-field select:focus-visible,
+.interview-form-card .auth-field textarea:focus-visible {
+    outline: 2px solid white;
+    outline-offset: 2px;
+}
+
+.interview-form-card .auth-field select[aria-invalid="true"],
+.interview-form-card .auth-field textarea[aria-invalid="true"] {
+    border-color: #ff8a8a;
+}
+
+.interview-form-card option {
+    color: white;
+    background: #222;
+}
+
+.interview-form-card textarea {
+    resize: vertical;
+}

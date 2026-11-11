@@ -1,11 +1,15 @@
 """Tracker page data, read from the JobApplication, Company and Interview tables."""
 
 from collections import Counter
+from datetime import datetime, timezone
 import logging
+from urllib.parse import urlsplit
 
 import mysql.connector
 
 from db import DatabaseError, get_db
+from services.interview_service import list_interviews
+from services.interview_time import utc_to_dublin
 
 logger = logging.getLogger(__name__)
 
@@ -22,28 +26,33 @@ STATUS_THEMES = {
 # Statuses shown as count tiles at the top of the page.
 SUMMARY_STATUSES = ("Applied", "Interview", "Offer", "Rejected")
 
-# How many interview cards show before the "Show more" button.
+# How many upcoming interview cards the tracker shows; "Show more" opens the Interviews page.
 VISIBLE_INTERVIEWS = 2
 
 # Shown where an interview has no venue or link.
 NO_LOCATION = "—"
 
+# How dates read in the details panels; matches the template's date_text macro.
+DISPLAY_DATE = "%b %d, %Y"
+
+# Text columns listed in the Details panel, in this order, when they hold something.
+FACT_FIELDS = (
+    ("location", "Location"),
+    ("work_type", "Work type"),
+    ("opportunity_type", "Opportunity"),
+    ("salary_text", "Salary"),
+)
+
 # Every query filters by the user's id, which is passed as a parameter, never joined into the text.
+# job_ad_text is left out on purpose: it can be long and the panels do not show it.
 APPLICATIONS_QUERY = """
-    SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date
+    SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date,
+           a.created_at, a.location, a.work_type, a.opportunity_type, a.salary_text, a.job_url,
+           a.notes, a.updated_at, c.website_url
     FROM `JobApplication` a
     JOIN `Company` c ON c.company_id = a.company_id
     WHERE a.user_id = %s
     ORDER BY a.application_id
-"""
-
-INTERVIEWS_QUERY = """
-    SELECT i.application_id, c.name AS company, a.job_title, i.scheduled_at, i.venue_or_link AS location
-    FROM `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    JOIN `Company` c ON c.company_id = a.company_id
-    WHERE a.user_id = %s
-    ORDER BY i.scheduled_at
 """
 
 # Generic practice questions, the same for everyone. Personalised ones are planned
@@ -71,8 +80,12 @@ def _fetch_all(query, user_id):
             return cursor.fetchall()
         finally:
             cursor.close()
-    except mysql.connector.Error:
-        logger.exception("Tracker query failed for user %s", user_id)
+    except (mysql.connector.Error, DatabaseError) as error:
+        # Connector messages can include usernames, SQL or server-provided text.
+        # Retain the original call stack, but never log that exception's value,
+        # chained exceptions, query parameters or frame locals.
+        safe_error = DatabaseError("Database read failed.")
+        logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
         raise DatabaseError("Could not load your tracker data. Please try again later.") from None
 
 
@@ -90,45 +103,165 @@ def _next_step(application, interviews):
             for interview in interviews
             if interview["application_id"] == application["application_id"]
         ]
-        return ("Interview", min(times).date() if times else None)
+        return ("Interview", utc_to_dublin(min(times)).date() if times else None)
     if status == "Offer":
         return ("Decision pending", None)
     return ("Closed", None)
 
 
-def _application_rows(applications, interviews):
+def _history_event(day, label, detail=None, *, is_future=False, is_upcoming=False):
+    return {"date": day, "label": label, "detail": detail, "is_future": is_future, "is_upcoming": is_upcoming}
+
+
+def _interview_event(interview, cutoff):
+    """One interview: '<Type> interview', its venue label, and the outcome once it has happened."""
+    is_upcoming = interview["scheduled_at"] >= cutoff
+    venue = interview.get("venue_or_link")
+    parts = [_location_label(venue)] if venue else []
+    if not is_upcoming and interview.get("outcome") not in (None, "Pending"):
+        parts.append(interview["outcome"])
+    return _history_event(utc_to_dublin(interview["scheduled_at"]).date(),
+                          f"{interview['interview_type'].capitalize()} interview",
+                          " · ".join(parts) or None, is_future=is_upcoming, is_upcoming=is_upcoming)
+
+
+def _history(application, interviews, cutoff):
+    """What happened with one application and when, oldest first, from dates already stored.
+
+    created_at and scheduled_at are naive UTC (shown as Europe/Dublin dates); applied_at and
+    closing_date are plain dates. Same-day events keep this order: saved, applied, interviews, closing.
+    """
+    today = utc_to_dublin(cutoff).date()
+    events = []
+    if application.get("created_at"):
+        events.append(_history_event(utc_to_dublin(application["created_at"]).date(), "Saved to tracker"))
+    if application.get("applied_at"):
+        events.append(_history_event(application["applied_at"], "Applied",
+                                     is_future=application["applied_at"] > today))
+    events += [_interview_event(interview, cutoff) for interview in interviews
+               if interview["application_id"] == application["application_id"]]
+    if application.get("closing_date"):
+        events.append(_history_event(application["closing_date"], "Closing date",
+                                     is_future=application["closing_date"] > today))
+    return sorted(events, key=lambda event: event["date"])  # stable: keeps same-day order
+
+
+def _now_utc():
+    """The page's single "now": naive UTC to the second, matching the stored DATETIMEs."""
+    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+
+
+def _facts(application):
+    """The Details panel's label/value pairs, only for fields that hold something."""
+    values = ((label, (application.get(field) or "").strip()) for field, label in FACT_FIELDS)
+    facts = [{"label": label, "value": value} for label, value in values if value]
+    if application.get("closing_date"):
+        facts.append({"label": "Closing date", "value": application["closing_date"].strftime(DISPLAY_DATE)})
+    return facts
+
+
+def _link(label, value):
+    """A saved address: a link only for absolute HTTP(S); anything else stays plain text."""
+    url = _location_url(value)
+    return {"label": label, "text": _location_label(value) if url else value, "url": url}
+
+
+def _links(application):
+    return [_link(label, application[field])
+            for field, label in (("job_url", "Job ad"), ("website_url", "Company site"))
+            if application.get(field)]
+
+
+def _updated_text(application):
+    updated_at = application.get("updated_at")
+    return utc_to_dublin(updated_at).strftime(DISPLAY_DATE) if updated_at else ""
+
+
+def _application_rows(applications, interviews, cutoff=None):
+    cutoff = cutoff or _now_utc()
     rows = []
     for application in applications:
-        next_step, next_date = _next_step(application, interviews)
+        own_interviews = [interview for interview in interviews
+                          if interview["application_id"] == application["application_id"]]
+        next_step, next_date = _next_step(application, own_interviews)
         rows.append({
+            "application_id": application["application_id"],
             "company": application["company"],
             "job_title": application["job_title"],
             "applied_at": application["applied_at"],
             "status": application["status"],
             "next_step": next_step,
             "next_date": next_date,
+            "history": _history(application, own_interviews, cutoff),
+            "facts": _facts(application),
+            "links": _links(application),
+            "notes": application.get("notes") or "",
+            "updated_text": _updated_text(application),
+            "interviews": _interview_rows(own_interviews, cutoff),
         })
     return rows
 
 
-def _interview_cards(interviews):
-    """Interview cards, soonest first."""
+def _location_url(value):
+    """Allow only absolute HTTP(S) URLs; malformed/other venues stay text."""
+    if not value or any(character.isspace() or ord(character) < 32 for character in value) or "\\" in value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() in ("http", "https") and parsed.hostname and parsed.port != 0:
+            return value
+    except ValueError:
+        pass
+    return None
+
+
+# Meeting services named on the interview cards, matched on the link's host
+# (the host itself or any subdomain of it, never a lookalike such as zoom.us.evil.example).
+MEETING_SERVICES = (
+    ("meet.google.com", "Google Meet"),
+    ("zoom.us", "Zoom"),
+    ("teams.microsoft.com", "Microsoft Teams"),
+    ("teams.live.com", "Microsoft Teams"),
+    ("skype.com", "Skype"),
+    ("webex.com", "Webex"),
+    ("whereby.com", "Whereby"),
+    ("meet.jit.si", "Jitsi Meet"),
+)
+
+
+def _location_label(value):
+    """Readable text for a venue: a service name or site name for a link, else the venue as typed."""
+    if not _location_url(value):
+        return value
+    host = urlsplit(value).hostname.lower()
+    for domain, label in MEETING_SERVICES:
+        if host == domain or host.endswith("." + domain):
+            return label
+    return host.removeprefix("www.")
+
+
+def _interview_rows(interviews, cutoff=None):
+    """Keep the service's UTC ordering/IDs; convert only display datetimes."""
     return [
         {
-            "company": interview["company"],
-            "job_title": interview["job_title"],
-            "scheduled_at": interview["scheduled_at"],
-            "location": interview["location"] or NO_LOCATION,
+            **interview,
+            "scheduled_at_utc": interview["scheduled_at"],
+            "scheduled_at": utc_to_dublin(interview["scheduled_at"]),
+            "location": interview["venue_or_link"] or NO_LOCATION,
+            "location_url": _location_url(interview["venue_or_link"]),
+            "location_label": _location_label(interview["venue_or_link"] or NO_LOCATION),
+            "is_past": cutoff is not None and interview["scheduled_at"] < cutoff,
         }
-        for interview in sorted(interviews, key=lambda item: item["scheduled_at"])
+        for interview in interviews
     ]
 
 
-def _practice_meta(cards):
-    """Subtitle for the practice card, from the soonest interview ('' if there is none)."""
-    if not cards:
+def _practice_meta(cards, cutoff):
+    """Use only upcoming UTC interviews, keeping the listing's single cutoff."""
+    upcoming = [card for card in cards if card["scheduled_at_utc"] >= cutoff]
+    if not upcoming:
         return ""
-    soonest = cards[0]
+    soonest = upcoming[0]
     return f"{soonest['job_title']} · {soonest['company']} · {soonest['scheduled_at'].strftime('%A')}"
 
 
@@ -160,15 +293,24 @@ def load_tracker_page(user_id, status="", company="", role=""):
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
-    interviews = _fetch_all(INTERVIEWS_QUERY, user_id)
-    cards = _interview_cards(interviews)
-    rows = _application_rows(applications, interviews)
+    cutoff = _now_utc()
+    interviews = list_interviews(user_id, cutoff=cutoff)
+    cards = _interview_rows(interviews, cutoff)
+    upcoming = [card for card in cards if not card["is_past"]][:VISIBLE_INTERVIEWS]
+    rows = _application_rows(applications, interviews, cutoff)
     return {
         "applications": _filter_rows(rows, status, company, role),
         "total_applications": len(applications),
         "company_options": _options(rows, "company"),
         "role_options": _options(rows, "job_title"),
-        "interviews": cards,
-        "practice_meta": _practice_meta(cards),
+        "interviews": upcoming,
+        "has_more_interviews": len(cards) > len(upcoming),
+        "practice_meta": _practice_meta(cards, cutoff),
         "status_counts": _status_counts(applications),
     }
+
+
+def load_interviews_page(user_id):
+    """Dedicated owner listing; reuse the UTC ordering and display transformation."""
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    return {"interviews": _interview_rows(list_interviews(user_id, cutoff=cutoff))}

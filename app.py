@@ -104,7 +104,7 @@ def tracker():
         page = load_tracker_page(current_user_id(), status=status, company=company, role=role)
     except DatabaseError as error:
         flash(str(error), "danger")
-        page = {"applications": [], "interviews": [], "practice_meta": "",
+        page = {"applications": [], "interviews": [], "has_more_interviews": False, "practice_meta": "",
                 "status_counts": {}, "total_applications": 0}
         status_code = 503
     return render_template(

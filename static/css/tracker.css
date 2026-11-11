@@ -12,19 +12,57 @@
     gap: 1rem 1.5rem;
 }
 
+/* The status peaks stand on the table: cancel the section's gap under the header
+   (the tiles are always the header's bottom edge). 1.25rem = the gap-6 on .tracker. */
+.tracker > .tracker-header { margin-block-end: -1.25rem; }
+
 .tracker-header > h1     { grid-area: title; }
 .tracker-header > button { grid-area: add; }
 .status-tiles            { grid-area: tiles; }
 
 .status-tiles {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 7rem));  /* small peaks, packed together */
+    justify-content: center;
     gap: 0.5rem;
 }
 
 @container tracker (width < 340px) {
-    .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .status-tiles { grid-template-columns: repeat(2, minmax(0, 7rem)); }
 }
+
+/* Each tile is a small mountain peak: pastel fill, darker ridge line, count and label inside. */
+.status-tile {
+    --tile-fill: #cff4fc;
+    --tile-ridge: #6edff6;
+    --tile-text: #055160;
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 3.5rem;
+    padding-block-end: 0.2rem;
+    text-align: center;
+    line-height: 1.2;
+    color: var(--tile-text);
+}
+
+.status-tile[data-status="Interview"] { --tile-fill: #fff3cd; --tile-ridge: #ffcd39; --tile-text: #664d03; }
+.status-tile[data-status="Offer"]     { --tile-fill: #d1e7dd; --tile-ridge: #75b798; --tile-text: #0a3622; }
+.status-tile[data-status="Rejected"]  { --tile-fill: #f8d7da; --tile-ridge: #ea868f; --tile-text: #58151c; }
+
+.status-tile-art {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.status-tile-fill  { fill: var(--tile-fill); fill-opacity: 0.85; }  /* a little see-through */
+.status-tile-ridge { fill: none; stroke: var(--tile-ridge); stroke-width: 2; stroke-linejoin: round; }
 
 @container tracker (width >= 576px) {
     .tracker-header {
@@ -38,6 +76,19 @@
         grid-template-columns: auto minmax(0, 1fr) 16rem;
         grid-template-areas: "title tiles add";
     }
+}
+
+/* ---------- Upcoming interview cards on the tracker ---------- */
+
+.interview-card .card-body { gap: 0.75rem; }
+.interview-location { overflow-wrap: anywhere; }
+
+/* One column: practice goes after "Show more". Two columns: practice sits beside the cards. */
+.practice-card { order: 1; }
+.practice-body { flex: 1 1 0; }
+
+@container tracker (width >= 768px) {
+    .practice-card { order: 0; }
 }
 
 /* ---------- Always-visible scrollbar (macOS hides it by default) ---------- */
@@ -86,6 +137,17 @@
 
 .applications-scroll {
     max-height: 21rem;  /* about five rows, then it scrolls */
+}
+
+/* Blank ruled rows that tracker.js adds under the last application to fill the panel. */
+.applications-table .filler-row { pointer-events: none; }
+
+/* Side by side with the interviews: as tall as the practice card (tracker.js sets the height). */
+@container tracker (width >= 768px) {
+    .applications-scroll {
+        height: var(--practice-card-height, auto);
+        max-height: none;
+    }
 }
 
 .applications-table [data-col="applied"],

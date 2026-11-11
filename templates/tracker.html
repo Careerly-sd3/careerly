@@ -55,40 +55,26 @@
 
 {# ---------- Page ---------- #}
 
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}" />
+{% endblock %}
+
 {% block main %}
-<style>
-    /* Always-visible scrollbar so users can see an area scrolls (macOS hides it by default). */
-    .visible-scroll::-webkit-scrollbar { width: 0.75rem; }
-    .visible-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
-    .visible-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border: 3px solid #f3f4f6; border-radius: 999px; }
-    /* A column heading that is also a dropdown: it reads like the other headings, with an arrow after the name.
-       The real <select> sits invisibly on top, so clicking the heading opens the normal dropdown list. */
-    .filter-head { position: relative; display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
-    .filter-head select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-    .filter-head:hover, .filter-head:focus-within, .filter-head.is-active { text-decoration: underline; text-underline-offset: 0.25em; }
-    @supports not selector(::-webkit-scrollbar) {
-        .visible-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
-    }
-</style>
+<section class="tracker d-flex flex-column gap-6">
 
-<section class="d-flex flex-column gap-6">
+    {# Title, Add button and status counts #}
+    <div class="tracker-header">
+        <h1 class="fs-2xl fw-bold mb-0">Job Applications</h1>
+        <button type="button" class="btn btn-solid btn-lg theme-success">+ Add Application</button>
 
-    {# Title, status counts and the Add button #}
-    <div class="grid align-items-center">
-        <h1 class="g-col-12 md:g-col-3 fs-2xl fw-bold mb-0">Job Applications</h1>
-
-        <ul class="g-col-12 md:g-col-6 grid gap-2 list-unstyled mb-0" data-bs-theme="light">
+        <ul class="status-tiles list-unstyled mb-0" data-bs-theme="light">
             {% for status, count in status_counts.items() %}
-            <li class="g-col-3 theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
+            <li class="theme-{{ status_themes[status] }} theme-subtle rounded-4 py-2 text-center">
                 <div class="fw-semibold">{{ count }}</div>
                 <div class="fs-sm">{{ status }}</div>
             </li>
             {% endfor %}
         </ul>
-
-        <div class="g-col-12 md:g-col-3">
-            <button type="button" class="btn btn-solid btn-lg theme-success w-100">+ Add Application</button>
-        </div>
     </div>
 
     {# The table's headings Company, Role and Status are dropdown filters (one GET form, so the address can be bookmarked) #}
@@ -110,10 +96,10 @@
         <div><a href="{{ url_for('tracker') }}" class="fs-sm">Clear filters</a></div>
         {% endif %}
 
-        {# Applications table: about 5 rows tall, then it scrolls #}
-        <div class="table-card mb-0" data-bs-theme="light">
-            <div class="table-responsive visible-scroll overflow-y-auto" style="max-height: 21rem">
-                <table class="table table-hover md:table-stacked">
+        {# Applications table: about 5 rows tall, then it scrolls (cards on phones) #}
+        <div class="table-card applications-card mb-0" data-bs-theme="light">
+            <div class="table-responsive applications-scroll visible-scroll overflow-y-auto">
+                <table class="table table-hover applications-table">
                     <thead class="sticky-top">
                         <tr>
                             <th scope="col">{{ filter_heading('company', 'Company', 'All companies', company_options, company) }}</th>
@@ -127,15 +113,15 @@
                     <tbody>
                         {% for application in applications %}
                         <tr>
-                            <td>{{ application.company }}</td>
-                            <td data-cell="Role">{{ application.job_title }}</td>
-                            <td data-cell="Applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
-                            <td data-cell="Status">{{ status_badge(application.status) }}</td>
-                            <td data-cell="Next Step">
+                            <td data-col="company">{{ application.company }}</td>
+                            <td data-col="role">{{ application.job_title }}</td>
+                            <td data-col="applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
+                            <td data-col="status">{{ status_badge(application.status) }}</td>
+                            <td data-col="next">
                                 {{ application.next_step }}
                                 {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
                             </td>
-                            <td data-cell="Actions">{{ row_actions(application.company) }}</td>
+                            <td data-col="actions">{{ row_actions(application.company) }}</td>
                         </tr>
                         {% else %}
                         <tr>
@@ -168,7 +154,7 @@
 
         {# Practice card: as tall as the cards beside it. The question list slides open inside it. #}
         {% if practice_questions %}
-        <article id="practice" class="card g-col-12 md:g-col-6 order-1 md:order-0" style="min-height: 18rem"
+        <article id="practice" class="card practice-card g-col-12 md:g-col-6" style="min-height: 18rem"
             data-bs-theme="light" data-questions="{{ practice_questions|tojson|forceescape }}">
             <div class="card-body overflow-hidden">
                 <div class="d-flex align-items-center gap-3">

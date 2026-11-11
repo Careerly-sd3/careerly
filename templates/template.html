@@ -37,9 +37,10 @@
             </div>
 
             {% if current_user.is_authenticated %}
-            <button class="btn-solid btn-styled theme-inverse" data-bs-toggle="menu">
-                <i class="bi bi-person-fill"></i>
-                Danyil
+            <button class="btn-solid btn-styled theme-inverse" data-bs-toggle="menu"
+                aria-label="Account menu for {{ current_user.name }}">
+                <i class="bi bi-person-fill" aria-hidden="true"></i>
+                <span class="d-none sm:d-inline">{{ current_user.name }}</span>
             </button>
             <div class="menu" data-bs-theme="light">
                 <a class="menu-item" href="#">

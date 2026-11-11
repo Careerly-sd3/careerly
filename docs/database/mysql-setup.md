@@ -2,11 +2,11 @@
 
 ## Status and prerequisites
 
-Migration 001 was executed manually in Workbench on 3 November 2026, as reported by the user. `SHOW TABLES` confirmed all six tables. The user reports successful CAR-158 hosted verification on 3 November 2026: 136 checks passed; PASS, with transaction rollback completed and synthetic changes not committed. The user reports that Flask db-check succeeded against careerly with a non-empty session SSL cipher and confirms careerly_app requires SSL. The agent has not executed hosted tests. One teammate, `careerly_alina`, verified access using their individual account on 4 November 2026 (04/11/2026): connection succeeded, all six tables were visible, and a non-empty session SSL cipher was separately confirmed. These checks were reported by the user; the other two teammates have not been reported as tested.
+Migration 001 was executed manually in Workbench on 3 November 2026, as reported by the user. `SHOW TABLES` confirmed all six tables. The user reports successful CAR-158 hosted verification on 3 November 2026: 136 checks passed; PASS, with transaction rollback completed and synthetic changes not committed. The user reports that Flask db-check succeeded against careerly with a non-empty session SSL cipher and confirms careerly_app requires SSL. No new hosted test execution is recorded. One teammate verified access using an individual account on 4 November 2026 (04/11/2026): connection succeeded, all six tables were visible, and a non-empty session SSL cipher was separately confirmed. These checks were reported by the user; the other two teammates have not been reported as tested.
 
 The user confirms Aiven MySQL **8.4.11**, a working Workbench SSL connection, and a `careerly` database containing the six implemented tables, using `utf8mb4` / `utf8mb4_0900_ai_ci`. Target MySQL 8.4.11 for this release, including enforced CHECK constraints; do not use MariaDB or older MySQL as an unverified substitute. Database contents must be rechecked before execution.
 
-Use a schema-management account through a certificate- and hostname-verified encrypted connection. Credentials do not belong in these files. The user confirms `careerly_app` has SELECT, INSERT, UPDATE and DELETE on `careerly.*`. The user confirms its REQUIRE SSL policy. The empty-database backup/restore exercise is recorded below; populated-data recovery and tracker persistence remain outstanding.
+Use a schema-management account through a certificate- and hostname-verified encrypted connection. Credentials do not belong in these files. The user confirms `careerly_app` has SELECT, INSERT, UPDATE and DELETE on `careerly.*`. The user confirms its REQUIRE SSL policy. The empty-database backup/restore exercise is recorded below; populated-data recovery and application CRUD remain outstanding. Interview create/edit/delete flows have user-reported browser evidence; remaining manual checks are recorded in [CAR-67 verification](../interviews/add-interview.md). Tracker reads now use MySQL.
 
 ## Existing database creation
 
@@ -150,11 +150,11 @@ To start the existing application:
 .\.venv\Scripts\python.exe -m flask --app app run --debug
 ```
 
-Importing or starting the application does not open a database connection. `/tracker` retains main's session-based login requirement and per-user sample-data filtering; these routes do not open database connections. Future persistence code calls `db.get_db()` inside a Flask context, closes its cursors, and explicitly commits only a completed unit of work. Connections are reused within an application/request context, with rollback and close at context teardown (including errors); teardown never commits. No tracker persistence or sample import is included. Main's registration service still stores users in memory, and the login page remains a placeholder; the connection merge does not move registration into MySQL.
+Importing or starting the application does not open a database connection. `/tracker` requires Flask-Login authentication and reads owner-filtered applications/interviews from MySQL. An authenticated request reloads its User record from MySQL; application import/startup alone remains lazy. Future persistence code calls `db.get_db()` inside a Flask context, closes its cursors, and explicitly commits only a completed unit of work. Connections are reused within an application/request context, with rollback and close at context teardown (including errors); teardown never commits. Tracker reads are database-backed; application CRUD remains unimplemented. Interview edit/delete routes now reuse the owner-scoped service; deletion requires a confirmation POST. Owned application Add interview GET/POST routes use the shared service and CSRF helper; see [manual checks](../interviews/add-interview.md). Registration and login now use the same persisted MySQL User records. No sample data is imported.
 
 ### Verify account REQUIRE SSL separately
 
-The user has confirmed `careerly_app` requires SSL. This is user-reported confirmation; no administrator output or independent agent verification is asserted. For teammates verifying their own setup, check the exact account matched by the server, including its host component. In a session authenticated as `careerly_app`, this read-only query identifies it:
+The user has confirmed `careerly_app` requires SSL. This is user-reported confirmation; no administrator output or independent policy verification is recorded. For teammates verifying their own setup, check the exact account matched by the server, including its host component. In a session authenticated as `careerly_app`, this read-only query identifies it:
 
 ```sql
 SELECT CURRENT_USER() AS `matched_account`;
@@ -174,7 +174,7 @@ WHERE `User` = 'careerly_app';
 | --- | --- | --- |
 | Correct `careerly_app` account requires SSL | Confirmed by user | User-reported; exact verification time not supplied |
 | Hosted `flask --app app db-check` succeeds | Succeeded against `careerly` with a non-empty session SSL cipher | User-reported; exact execution time not supplied |
-| Teammate `careerly_alina` | Individual-account connection succeeded; all six tables visible; non-empty session SSL cipher separately confirmed | 4 November 2026 (04/11/2026); user-reported |
+| Teammate one individual account | Individual-account connection succeeded; all six tables visible; non-empty session SSL cipher separately confirmed | 4 November 2026 (04/11/2026); user-reported |
 | Other two teammates' connection tests | Pending | No results supplied |
 
 ### Mocked automated checks
@@ -219,7 +219,7 @@ Each completed check prints PASS; failure returns exit code 1 (missing opt-in re
 | Verification | Execution date (exact time not supplied) | Operator | Result/evidence |
 | --- | --- | --- | --- |
 | CAR-158 hosted schema runner | 3 November 2026 | Not recorded | User-reported: 136 checks passed; PASS. Transaction rollback completed; synthetic changes were not committed. |
-| Teammate connection: `careerly_alina` | 4 November 2026 (04/11/2026) | `careerly_alina` | User-reported: individual-account connection succeeded, six tables visible, non-empty session SSL cipher separately confirmed |
+| Teammate connection: one individual account | 4 November 2026 (04/11/2026) | one individual account | User-reported: individual-account connection succeeded, six tables visible, non-empty session SSL cipher separately confirmed |
 | Other two teammates' connection tests | Not recorded | Not recorded | Pending |
 
 Local checks remain safe to run without hosted access:
@@ -256,7 +256,7 @@ The user reports a successful **empty-database restore test** using MySQL Workbe
 | UNIQUE | 2 | 2 |
 | CHECK | 5 | 5 |
 
-This verifies restoration of the empty tables and the reported counts. It does **not** establish populated-data recovery, a full schema-definition comparison, or restored constraint behaviour. Matching counts alone do not prove identical constraint definitions or enforcement. The successful CAR-158 result applies to the source database; it must not be presented as a behavioural test of the restored database. Backup/restore timing, operator identity and backup checksums were not supplied. One teammate, `careerly_alina`, has verified their individual-account connection, six-table visibility and non-empty session SSL cipher on 4 November 2026. The other two teammates' connection verification remains **pending**.
+This verifies restoration of the empty tables and the reported counts. It does **not** establish populated-data recovery, a full schema-definition comparison, or restored constraint behaviour. Matching counts alone do not prove identical constraint definitions or enforcement. The successful CAR-158 result applies to the source database; it must not be presented as a behavioural test of the restored database. Backup/restore timing, operator identity and backup checksums were not supplied. One teammate, using an individual account, has verified their individual-account connection, six-table visibility and non-empty session SSL cipher on 4 November 2026. The other two teammates' connection verification remains **pending**.
 
 ### Export warnings and future settings
 
@@ -280,7 +280,7 @@ SQL backups must remain **outside Git**, including original exports, adjusted co
 
 ### Read-only restore comparison queries
 
-These queries document how to repeat the comparison; they were not executed by the agent. Run the first query once with `careerly` selected and once with the restore database selected, confirming the selected name each time. All table references below are unqualified deliberately so the same query runs in each selected schema.
+These queries are repeatable inspection instructions, not additional recorded execution evidence. Run the first query once with `careerly` selected and once with the restore database selected, confirming the selected name each time. All table references below are unqualified deliberately so the same query runs in each selected schema.
 
 ```sql
 SELECT DATABASE() AS `selected_database`;
@@ -301,3 +301,31 @@ ORDER BY `CONSTRAINT_SCHEMA`, `CONSTRAINT_TYPE`;
 ```
 
 For a later exercise, replace only the restore schema literal in the final query with the new target name. Constraint counts do not substitute for comparing `SHOW CREATE TABLE` definitions or testing enforcement.
+
+## Persistent authentication and interviews
+
+Startup requires a private, non-empty `SECRET_KEY` (no fallback) and the six
+`MYSQL_*` settings above. Requirements are UTF-8; dependency pins are preserved.
+Registration, login and session loading use the existing User table and verified
+`db.get_db()` helper, without ORM/DB_* configuration, in-memory fallback, schema
+creation or password resets. `certs/` is an ignored optional CA location.
+
+Registration returns MySQL's generated User ID, supplies UTC `created_at`, hashes
+with Werkzeug and explicitly commits; duplicate-key 1062 handles concurrent email
+registrations. Failed writes roll back; uncertain commits require checking before
+retry. Reads finish only their own transactions, and writes refuse active caller
+work. Existing scrypt/PBKDF2 hashes are verified without rewriting records.
+
+Home/login GETs remain renderable during session-lookup outages with an explicit
+notice; protected requests return styled generic 503. Session identity is retained
+for recovery. Logs omit credentials/driver messages while retaining sanitised
+tracker stack traces. `python db_check.py` remains an optional read-only diagnostic
+using the same configuration; it does not connect on import.
+
+Run `.\.venv\Scripts\python.exe -m unittest discover -s tests -v` for mocked local
+checks. See [CAR-67 evidence and manual checks](../interviews/add-interview.md) for
+interview CRUD, ordering, ownership and responsive user reports. Live malicious
+POST/CSRF, validation/timezone and failure checks remain unreported. Comprehensive
+hosted authentication/restart/hash compatibility is not established by mocks.
+The historical 136 hosted schema checks, empty-database restore limits and pending
+team-account verification above are unchanged.

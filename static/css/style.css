@@ -3,6 +3,8 @@
 }
 
 body {
+    width: 100%;
+    box-sizing: border-box;
     max-width: 1200px;
     min-height: 100vh;
     background: url("../images/background.jpg") center / auto 100% no-repeat fixed;
@@ -15,6 +17,36 @@ main > section {
 header {
     background: inherit;
 }
+
+/* Flex items must be allowed to shrink around locally scrolling tables. */
+body > main, body > header, body > footer {
+    min-width: 0;
+    max-width: 100%;
+}
+
+header .navbar {
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+header .navbar > *, .account-controls > * {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.account-controls, #account-name {
+    overflow-wrap: anywhere;
+}
+
+#nav-links {
+    flex-wrap: wrap;
+    max-width: 100%;
+}
+
+#nav-links > a:focus-visible .nav-option-text {
+    width: fit-content;
+}
+
 
 footer a {
     color: white;
@@ -102,19 +134,13 @@ footer a {
     transition: 300ms !important;
 }
 
-/* Phones: less space above the title; slimmer nav buttons keep the navbar on one line. */
-@media (width < 576px) {
-    main > section {
-        margin-block: 2rem;
-    }
-
-    #nav-links > a {
-        padding-inline: 1rem;
-    }
+@media (width < 768px) {
+    body { padding-inline: 1rem !important; }
+    #nav-links { flex-basis: 100%; gap: 0.25rem; }
+    #nav-links > a { padding-inline: 0.65rem; }
+    #nav-links .nav-option-text { width: auto; }
+    footer > .d-flex { flex-wrap: wrap; min-width: 0; }
 }
-
-@media (width < 360px) {
-    #nav-links > a {
-        padding-inline: 0.75rem;
-    }
+@media (width < 576px) {
+    main > section { margin-block: 2rem; }
 }

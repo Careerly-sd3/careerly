@@ -1,11 +1,15 @@
 """Tracker page data, read from the JobApplication, Company and Interview tables."""
 
 from collections import Counter
+from datetime import datetime, timezone
 import logging
+from urllib.parse import urlsplit
 
 import mysql.connector
 
 from db import DatabaseError, get_db
+from services.interview_service import list_interviews
+from services.interview_time import utc_to_dublin
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +26,6 @@ STATUS_THEMES = {
 # Statuses shown as count tiles at the top of the page.
 SUMMARY_STATUSES = ("Applied", "Interview", "Offer", "Rejected")
 
-# How many interview cards show before the "Show more" button.
-VISIBLE_INTERVIEWS = 2
-
 # Shown where an interview has no venue or link.
 NO_LOCATION = "—"
 
@@ -35,15 +36,6 @@ APPLICATIONS_QUERY = """
     JOIN `Company` c ON c.company_id = a.company_id
     WHERE a.user_id = %s
     ORDER BY a.application_id
-"""
-
-INTERVIEWS_QUERY = """
-    SELECT i.application_id, c.name AS company, a.job_title, i.scheduled_at, i.venue_or_link AS location
-    FROM `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    JOIN `Company` c ON c.company_id = a.company_id
-    WHERE a.user_id = %s
-    ORDER BY i.scheduled_at
 """
 
 # Generic practice questions, the same for everyone. Personalised ones are planned
@@ -71,8 +63,12 @@ def _fetch_all(query, user_id):
             return cursor.fetchall()
         finally:
             cursor.close()
-    except mysql.connector.Error:
-        logger.exception("Tracker query failed for user %s", user_id)
+    except (mysql.connector.Error, DatabaseError) as error:
+        # Connector messages can include usernames, SQL or server-provided text.
+        # Retain the original call stack, but never log that exception's value,
+        # chained exceptions, query parameters or frame locals.
+        safe_error = DatabaseError("Database read failed.")
+        logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
         raise DatabaseError("Could not load your tracker data. Please try again later.") from None
 
 
@@ -90,7 +86,7 @@ def _next_step(application, interviews):
             for interview in interviews
             if interview["application_id"] == application["application_id"]
         ]
-        return ("Interview", min(times).date() if times else None)
+        return ("Interview", utc_to_dublin(min(times)).date() if times else None)
     if status == "Offer":
         return ("Decision pending", None)
     return ("Closed", None)
@@ -101,6 +97,7 @@ def _application_rows(applications, interviews):
     for application in applications:
         next_step, next_date = _next_step(application, interviews)
         rows.append({
+            "application_id": application["application_id"],
             "company": application["company"],
             "job_title": application["job_title"],
             "applied_at": application["applied_at"],
@@ -111,24 +108,39 @@ def _application_rows(applications, interviews):
     return rows
 
 
-def _interview_cards(interviews):
-    """Interview cards, soonest first."""
+def _location_url(value):
+    """Allow only absolute HTTP(S) URLs; malformed/other venues stay text."""
+    if not value or any(character.isspace() or ord(character) < 32 for character in value) or "\\" in value:
+        return None
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() in ("http", "https") and parsed.hostname and parsed.port != 0:
+            return value
+    except ValueError:
+        pass
+    return None
+
+
+def _interview_rows(interviews):
+    """Keep the service's UTC ordering/IDs; convert only display datetimes."""
     return [
         {
-            "company": interview["company"],
-            "job_title": interview["job_title"],
-            "scheduled_at": interview["scheduled_at"],
-            "location": interview["location"] or NO_LOCATION,
+            **interview,
+            "scheduled_at_utc": interview["scheduled_at"],
+            "scheduled_at": utc_to_dublin(interview["scheduled_at"]),
+            "location": interview["venue_or_link"] or NO_LOCATION,
+            "location_url": _location_url(interview["venue_or_link"]),
         }
-        for interview in sorted(interviews, key=lambda item: item["scheduled_at"])
+        for interview in interviews
     ]
 
 
-def _practice_meta(cards):
-    """Subtitle for the practice card, from the soonest interview ('' if there is none)."""
-    if not cards:
+def _practice_meta(cards, cutoff):
+    """Use only upcoming UTC interviews, keeping the listing's single cutoff."""
+    upcoming = [card for card in cards if card["scheduled_at_utc"] >= cutoff]
+    if not upcoming:
         return ""
-    soonest = cards[0]
+    soonest = upcoming[0]
     return f"{soonest['job_title']} · {soonest['company']} · {soonest['scheduled_at'].strftime('%A')}"
 
 
@@ -160,8 +172,9 @@ def load_tracker_page(user_id, status="", company="", role=""):
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
     applications = _fetch_all(APPLICATIONS_QUERY, user_id)
-    interviews = _fetch_all(INTERVIEWS_QUERY, user_id)
-    cards = _interview_cards(interviews)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    interviews = list_interviews(user_id, cutoff=cutoff)
+    cards = _interview_rows(interviews)
     rows = _application_rows(applications, interviews)
     return {
         "applications": _filter_rows(rows, status, company, role),
@@ -169,6 +182,6 @@ def load_tracker_page(user_id, status="", company="", role=""):
         "company_options": _options(rows, "company"),
         "role_options": _options(rows, "job_title"),
         "interviews": cards,
-        "practice_meta": _practice_meta(cards),
+        "practice_meta": _practice_meta(cards, cutoff),
         "status_counts": _status_counts(applications),
     }

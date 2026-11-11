@@ -18,34 +18,26 @@
 
 .status-tiles {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.5rem;
 }
 
 @container tracker (width < 340px) {
-    .status-tiles { grid-template-columns: repeat(2, 1fr); }
+    .status-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @container tracker (width >= 576px) {
     .tracker-header {
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(0, 1fr) auto;
         grid-template-areas: "title add" "tiles tiles";
     }
 }
 
 @container tracker (width >= 1024px) {
     .tracker-header {
-        grid-template-columns: auto 1fr 16rem;
+        grid-template-columns: auto minmax(0, 1fr) 16rem;
         grid-template-areas: "title tiles add";
     }
-}
-
-/* ---------- Interviews: in one column the practice card goes after "Show more" ---------- */
-
-.practice-card { order: 1; }
-
-@container tracker (width >= 768px) {
-    .practice-card { order: 0; }
 }
 
 /* ---------- Always-visible scrollbar (macOS hides it by default) ---------- */
@@ -147,11 +139,12 @@
 
     .applications-table > tbody > tr {
         display: grid;
-        grid-template-columns: 1fr 1fr auto;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
         grid-template-areas:
-            "company company status"
-            "role    role    role"
-            "applied next    actions";
+            "company status"
+            "role role"
+            "applied next"
+            "actions actions";
         gap: 0.15rem 0.75rem;
         padding: 0.85rem 1rem;
     }
@@ -190,4 +183,38 @@
         text-transform: uppercase;
         color: var(--bs-fg-3);
     }
+}
+
+/* Shared shrink boundaries keep overflow inside each table region. */
+.tracker, .tracker > *, .tracker .grid > *, .tracker .card,
+.tracker .card-body, .tracker .d-flex > *, .tracker .table-card {
+    min-width: 0;
+    max-width: 100%;
+}
+.tracker { overflow-wrap: anywhere; }
+.tracker .table-responsive { max-width: 100%; overflow-x: auto; }
+.tracker th, .tracker td { overflow-wrap: anywhere; }
+.interviews-table details { max-width: 22rem; }
+.interviews-table td, .interviews-table th { vertical-align: top; }
+@container tracker (width >= 640px) {
+    .applications-table { min-width: 48rem; }
+    .interviews-table { min-width: 60rem; }
+    .tracker thead th { overflow-wrap: normal; }
+    .interviews-table [data-col="scheduled"] { min-width: 12rem; }
+    .interviews-table [data-col="type"], .interviews-table [data-col="outcome"] { min-width: 6rem; }
+    .interviews-table [data-col="notes"] { min-width: 7rem; }
+    .interviews-table [data-col="actions"] { min-width: 10rem; }
+    .interviews-table [data-col="application"], .interviews-table [data-col="venue"],
+    .applications-table [data-col="company"], .applications-table [data-col="role"] {
+        min-width: 10rem;
+        max-width: 24rem;
+    }
+}
+@container tracker (width < 640px) {
+    .interviews-table, .interviews-table > tbody { display: block; }
+    .interviews-table > thead { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+    .interviews-table > tbody > tr { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.5rem; padding: 1rem; }
+    .interviews-table > tbody > tr + tr { border-block-start: 1px solid var(--bs-border-color); }
+    .interviews-table > tbody > tr > * { min-width: 0; padding: 0; border: 0; background: transparent; box-shadow: none; }
+    .interviews-table [data-label]::before { content: attr(data-label); display: block; font-size: 0.75rem; font-weight: 600; }
 }

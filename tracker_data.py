@@ -5,10 +5,12 @@ from datetime import datetime, timezone
 import logging
 from urllib.parse import urlsplit
 
-import mysql.connector
+from sqlalchemy import select
 
-from db import DatabaseError, get_db
-from services.interview_service import list_interviews
+from db import DatabaseError
+from models import JobApplication, Company
+from orm_db import operation_session
+from services.interview_service import list_interviews, _list_interviews
 from services.interview_time import utc_to_dublin
 
 logger = logging.getLogger(__name__)
@@ -45,15 +47,18 @@ FACT_FIELDS = (
 
 # Every query filters by the user's id, which is passed as a parameter, never joined into the text.
 # job_ad_text is left out on purpose: it can be long and the panels do not show it.
-APPLICATIONS_QUERY = """
-    SELECT a.application_id, c.name AS company, a.job_title, a.status, a.applied_at, a.closing_date,
-           a.created_at, a.location, a.work_type, a.opportunity_type, a.salary_text, a.job_url,
-           a.notes, a.updated_at, c.website_url
-    FROM `JobApplication` a
-    JOIN `Company` c ON c.company_id = a.company_id
-    WHERE a.user_id = %s
-    ORDER BY a.application_id
-"""
+def _applications_statement(user_id):
+    return (select(
+                JobApplication.application_id, Company.name.label("company"),
+                JobApplication.job_title, JobApplication.status, JobApplication.applied_at,
+                JobApplication.closing_date, JobApplication.created_at, JobApplication.location,
+                JobApplication.work_type, JobApplication.opportunity_type,
+                JobApplication.salary_text, JobApplication.job_url, JobApplication.notes,
+                JobApplication.updated_at, Company.website_url)
+            .select_from(JobApplication)
+            .join(Company, Company.company_id == JobApplication.company_id)
+            .where(JobApplication.user_id == user_id).order_by(JobApplication.application_id))
+
 
 # Generic practice questions, the same for everyone. Personalised ones are planned
 # to come from AIAnalysis (interview_prep) later.
@@ -71,22 +76,9 @@ PRACTICE_QUESTIONS = (
 )
 
 
-def _fetch_all(query, user_id):
-    """Run one read-only query for this user and return its rows as dictionaries."""
-    try:
-        cursor = get_db().cursor(dictionary=True)
-        try:
-            cursor.execute(query, (user_id,))
-            return cursor.fetchall()
-        finally:
-            cursor.close()
-    except (mysql.connector.Error, DatabaseError) as error:
-        # Connector messages can include usernames, SQL or server-provided text.
-        # Retain the original call stack, but never log that exception's value,
-        # chained exceptions, query parameters or frame locals.
-        safe_error = DatabaseError("Database read failed.")
-        logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
-        raise DatabaseError("Could not load your tracker data. Please try again later.") from None
+def _fetch_all(session, user_id):
+    """Materialise application/company rows within the owning Tracker read unit."""
+    return [dict(row) for row in session.execute(_applications_statement(user_id)).mappings().all()]
 
 
 def _next_step(application, interviews):
@@ -292,9 +284,18 @@ def load_tracker_page(user_id, status="", company="", role=""):
     the company and role dropdown lists always cover all of the user's applications.
     Raises DatabaseError (safe to show) when the database cannot be read.
     """
-    applications = _fetch_all(APPLICATIONS_QUERY, user_id)
-    cutoff = _now_utc()
-    interviews = list_interviews(user_id, cutoff=cutoff)
+    try:
+        with operation_session(
+            read_only=True,
+            error_message="Could not load your tracker data. Please try again later.",
+        ) as session:
+            applications = _fetch_all(session, user_id)
+            cutoff = _now_utc()
+            interviews = _list_interviews(session, user_id, cutoff=cutoff)
+    except DatabaseError as error:
+        safe_error = DatabaseError("Database read failed.")
+        logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
+        raise DatabaseError("Could not load your tracker data. Please try again later.") from None
     cards = _interview_rows(interviews, cutoff)
     upcoming = [card for card in cards if not card["is_past"]][:VISIBLE_INTERVIEWS]
     rows = _application_rows(applications, interviews, cutoff)

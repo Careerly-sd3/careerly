@@ -83,25 +83,40 @@ def _cleanup(connection):
             current_app.logger.warning("MySQL close failed during cleanup.")
 
 
+def create_verified_connection(*, orm=False):
+    """Open a dedicated verified connection; never loads private configuration."""
+    options = _connection_options()
+    if orm:
+        # A custom SQLAlchemy creator bypasses dialect.create_connect_args().
+        # Match its buffered-cursor and matched-rowcount requirements without
+        # overriding any of the shared security/timeout options.
+        from mysql.connector.constants import ClientFlag
+        options["buffered"] = True
+        options["client_flags"] = ClientFlag.get_default() | ClientFlag.FOUND_ROWS
+    connection = None
+    try:
+        connection = mysql.connector.connect(**options)
+        _verify_session(connection, options["database"])
+    except DatabaseError:
+        if connection is not None:
+            _cleanup(connection)
+        raise
+    except (mysql.connector.Error, OSError, ValueError):
+        if connection is not None:
+            _cleanup(connection)
+        raise DatabaseError(
+            "MySQL connection or verification failed. Check the environment configuration, "
+            "CA certificate, network access and account permissions."
+        ) from None
+    return connection
+
+
 def get_db():
     """Reuse one connection per Flask app context; refuse unverified sessions."""
+    if g.get("orm_operation_active", False):
+        raise DatabaseError("Legacy access is unavailable during an ORM operation.")
     if "mysql_connection" not in g:
-        options = _connection_options()
-        connection = None
-        try:
-            connection = mysql.connector.connect(**options)
-            _verify_session(connection, options["database"])
-        except DatabaseError:
-            if connection is not None:
-                _cleanup(connection)
-            raise
-        except (mysql.connector.Error, OSError, ValueError):
-            if connection is not None:
-                _cleanup(connection)
-            raise DatabaseError(
-                "MySQL connection or verification failed. Check the environment configuration, "
-                "CA certificate, network access and account permissions."
-            ) from None
+        connection = create_verified_connection()
         g.mysql_connection = connection
     return g.mysql_connection
 

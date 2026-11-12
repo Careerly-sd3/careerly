@@ -1,10 +1,10 @@
 """Synthetic MySQL-boundary fixture for route tests; never opens a database."""
 from copy import deepcopy
+from contextlib import contextmanager
+from sqlalchemy.dialects import mysql
+from models import User as UserRecord
+from orm_db import ORMDatabaseError
 from unittest.mock import MagicMock
-
-import mysql.connector
-
-from services import auth_service as auth
 
 
 class AuthDatabaseFixture:
@@ -37,30 +37,50 @@ class AuthDatabaseFixture:
         self.connection.in_transaction = False
 
     def cursor(self, **options):
-        cursor = MagicMock()
+        return MagicMock()
 
-        def execute(query, parameters):
-            if query == auth.USER_BY_EMAIL:
-                matches = [row for row in self.rows.values() if row["email"] == parameters[0]]
-            elif query == auth.USER_BY_ID:
-                matches = [row for row in self.rows.values() if row["user_id"] == parameters[0]]
-            elif query == auth.CREATE_USER:
-                name, email, password_hash, created_at = parameters
-                if any(row["email"] == email for row in self.rows.values()):
-                    raise mysql.connector.IntegrityError("synthetic duplicate", errno=1062)
-                identity = self.next_id
-                self.next_id += 1
-                self.rows[identity] = {
-                    "user_id": identity, "name": name, "email": email,
-                    "password_hash": password_hash, "created_at": created_at,
-                }
-                cursor.lastrowid = identity
-                self.connection.in_transaction = True
-                return
+    @contextmanager
+    def auth_operation(self, *, read_only=False, error_message=None):
+        """Synthetic ORM boundary independent of the legacy interview connection.
+
+        Infrastructure exclusion/rollback is tested with the real context manager
+        in test_auth_service; this fixture retains route behaviour assertions.
+        """
+        snapshot = deepcopy(self.rows)
+        session = MagicMock()
+        pending = []
+        session.add.side_effect = pending.append
+
+        def execute(statement):
+            parameters = statement.compile(dialect=mysql.dialect()).params
+            if 'email_1' in parameters:
+                matches = [r for r in self.rows.values() if r['email'] == parameters['email_1']]
             else:
-                raise AssertionError("Unexpected authentication SQL")
-            cursor.fetchone.return_value = deepcopy(matches[0]) if matches else None
-            self.connection.in_transaction = True
+                matches = [r for r in self.rows.values() if r['user_id'] == parameters['user_id_1']]
+            result = MagicMock()
+            result.scalar_one_or_none.return_value = UserRecord(**deepcopy(matches[0])) if matches else None
+            return result
 
-        cursor.execute.side_effect = execute
-        return cursor
+        def flush():
+            for record in pending:
+                if any(r['email'] == record.email for r in self.rows.values()):
+                    raise ORMDatabaseError(error_message, connector_errno=1062)
+                record.user_id = self.next_id
+                self.next_id += 1
+                self.rows[record.user_id] = {c.name: getattr(record, c.name) for c in UserRecord.__table__.columns}
+            pending.clear()
+
+        session.execute.side_effect = execute
+        session.flush.side_effect = flush
+        try:
+            yield session
+            if read_only:
+                session.rollback()
+            else:
+                session.commit()
+        except BaseException:
+            self.rows = snapshot
+            session.rollback()
+            raise
+        finally:
+            session.close()

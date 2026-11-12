@@ -75,6 +75,26 @@ class DatabaseTests(unittest.TestCase):
         self.assertNotIn("sensitive", str(error.exception))
         self.connect.assert_not_called()
 
+    def test_orm_factory_preserves_security_and_dialect_requirements(self):
+        from mysql.connector.constants import ClientFlag
+        with self.app.app_context():
+            db.create_verified_connection()
+            legacy_options = self.connect.call_args.kwargs.copy()
+            self.results = iter([("careerly",), ("Ssl_cipher", "TLS_AES_256_GCM_SHA384")])
+            db.create_verified_connection(orm=True)
+            orm_options = self.connect.call_args.kwargs.copy()
+        self.assertTrue(orm_options.pop("buffered"))
+        flags = orm_options.pop("client_flags")
+        self.assertEqual(flags, ClientFlag.get_default() | ClientFlag.FOUND_ROWS)
+        self.assertEqual(orm_options, legacy_options)
+        for option in ("ssl_verify_cert", "ssl_verify_identity"):
+            self.assertIs(orm_options[option], True)
+        self.assertIs(orm_options["ssl_disabled"], False)
+        self.assertEqual(orm_options["tls_versions"], ["TLSv1.2", "TLSv1.3"])
+        self.assertEqual(orm_options["read_timeout"], 10)
+        self.assertEqual(orm_options["write_timeout"], 10)
+        self.assertEqual(orm_options["connection_timeout"], 10)
+
     def test_tls_options_and_context_reuse(self):
         with self.app.app_context():
             self.assertIs(db.get_db(), self.connection)

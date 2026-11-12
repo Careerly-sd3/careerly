@@ -112,9 +112,9 @@ class EditDeleteInterviewTests(unittest.TestCase):
         before_interviews = deepcopy(self.database.interviews)
         before_applications = deepcopy(self.database.applications)
         for url, ownership_query, parameters in (
-            ('/applications/502/interviews/new', service.APPLICATION_QUERY, (502, 101)),
-            ('/interviews/902/edit', service.OWNED_INTERVIEW_QUERY, (902, 101)),
-            ('/interviews/902/delete', service.OWNED_INTERVIEW_QUERY, (902, 101)),
+            ('/applications/502/interviews/new', 'application', (502, 101)),
+            ('/interviews/902/edit', 'owned', (902, 101)),
+            ('/interviews/902/delete', 'owned', (902, 101)),
         ):
             with self.subTest(url=url):
                 self.database.queries.clear()
@@ -122,7 +122,7 @@ class EditDeleteInterviewTests(unittest.TestCase):
                     'csrf_token': token, 'user_id': '102', 'application_id': '501', 'interview_id': '901'})
                 self.assertEqual(response.status_code, 404)  # CSRF rejection would be 400.
                 self.assertIn((ownership_query, parameters), self.database.queries)
-                self.assertFalse(any(query in (service.CREATE_QUERY, service.UPDATE_QUERY, service.DELETE_QUERY)
+                self.assertFalse(any(query in ('create', 'update', 'delete')
                                      for query, _ in self.database.queries))
                 self.database.connection.start_transaction.assert_not_called()
                 self.database.connection.commit.assert_not_called()

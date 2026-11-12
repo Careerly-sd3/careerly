@@ -2,7 +2,6 @@
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-import importlib
 import re
 import runpy
 import unittest

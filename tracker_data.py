@@ -48,11 +48,13 @@ FACT_FIELDS = (
 # Every query filters by the user's id, which is passed as a parameter, never joined into the text.
 # job_ad_text is left out on purpose: it can be long and the panels do not show it.
 def _applications_statement(user_id):
-    return (select(JobApplication.application_id, Company.name.label("company"),
-                   *[getattr(JobApplication, field) for field in (
-                       "job_title", "status", "applied_at", "closing_date", "created_at",
-                       "location", "work_type", "opportunity_type", "salary_text", "job_url",
-                       "notes", "updated_at")], Company.website_url)
+    return (select(
+                JobApplication.application_id, Company.name.label("company"),
+                JobApplication.job_title, JobApplication.status, JobApplication.applied_at,
+                JobApplication.closing_date, JobApplication.created_at, JobApplication.location,
+                JobApplication.work_type, JobApplication.opportunity_type,
+                JobApplication.salary_text, JobApplication.job_url, JobApplication.notes,
+                JobApplication.updated_at, Company.website_url)
             .select_from(JobApplication)
             .join(Company, Company.company_id == JobApplication.company_id)
             .where(JobApplication.user_id == user_id).order_by(JobApplication.application_id))

@@ -26,7 +26,7 @@ class InterviewNotFound(LookupError):
 
 
 class InterviewValidationError(ValueError):
-    """Fixed field messages for future forms; submitted values are not echoed."""
+    """Field validation messages; submitted values are not echoed."""
 
     def __init__(self, errors):
         self.errors = errors
@@ -65,7 +65,7 @@ def _validate_notes(notes):
             raise InterviewValidationError({"notes": "Use valid UTF-8 text."}) from None
 
 
-def _values(scheduled_at, interview_type, venue_or_link, notes, outcome):
+def _validated_fields(scheduled_at, interview_type, venue_or_link, notes, outcome):
     scheduled_at = _utc(scheduled_at)
     errors = {}
     if interview_type not in INTERVIEW_TYPES:
@@ -85,7 +85,8 @@ def _values(scheduled_at, interview_type, venue_or_link, notes, outcome):
         errors.update(error.errors)
     if errors:
         raise InterviewValidationError(errors)
-    return scheduled_at, interview_type, venue_or_link, notes, outcome
+    return dict(scheduled_at=scheduled_at, interview_type=interview_type,
+                venue_or_link=venue_or_link, notes=notes, outcome=outcome)
 
 
 def _present(row):
@@ -114,11 +115,11 @@ def _interview_statement():
 
 
 def _owned_interview(session, user_id, interview_id, *, lock=False):
-    query = _interview_statement().where(
+    statement = _interview_statement().where(
         Interview.interview_id == interview_id, JobApplication.user_id == user_id)
     if lock:
-        query = query.with_for_update()
-    row = session.execute(query).mappings().one_or_none()
+        statement = statement.with_for_update()
+    row = session.execute(statement).mappings().one_or_none()
     if row is None:
         raise InterviewNotFound()
     return _present(row)
@@ -150,12 +151,12 @@ def get_owned_application(user_id, application_id):
 
 
 def _list_statement(user_id, cutoff):
-    cutoff = bindparam("cutoff", cutoff)
-    upcoming = Interview.scheduled_at >= cutoff
+    cutoff_param = bindparam("cutoff", cutoff)
+    upcoming = Interview.scheduled_at >= cutoff_param
     return (_interview_statement().where(JobApplication.user_id == user_id)
             .order_by(case((upcoming, 0), else_=1).asc(),
                       case((upcoming, Interview.scheduled_at)).asc(),
-                      case((Interview.scheduled_at < cutoff, Interview.scheduled_at)).desc(),
+                      case((Interview.scheduled_at < cutoff_param, Interview.scheduled_at)).desc(),
                       Interview.interview_id.asc()))
 
 
@@ -195,14 +196,13 @@ def create_interview(user_id, application_id, *, scheduled_at, interview_type,
     """Create under a locked owned application; return the committed saved row."""
     _validate_id(user_id, "user_id")
     _validate_id(application_id, "application_id")
-    values = _values(scheduled_at, interview_type, venue_or_link, notes, outcome)
+    fields = _validated_fields(scheduled_at, interview_type, venue_or_link, notes, outcome)
 
     def operation(session):
         parent = session.execute(_application_statement(user_id, application_id).with_for_update()).mappings().one_or_none()
         if parent is None:
             raise InterviewNotFound()
-        record = Interview(application_id=parent["application_id"],
-                           **dict(zip(("scheduled_at", "interview_type", "venue_or_link", "notes", "outcome"), values)))
+        record = Interview(application_id=parent["application_id"], **fields)
         session.add(record)
         session.flush()
         if type(record.interview_id) is not int or not 1 <= record.interview_id <= 2147483647:
@@ -216,12 +216,12 @@ def update_interview(user_id, interview_id, *, scheduled_at, interview_type,
     """Full replacement of editable fields; application_id stays immutable."""
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
-    values = _values(scheduled_at, interview_type, venue_or_link, notes, outcome)
+    fields = _validated_fields(scheduled_at, interview_type, venue_or_link, notes, outcome)
 
     def operation(session):
         _owned_interview(session, user_id, interview_id, lock=True)
         session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id))
-                        .values(**dict(zip(("scheduled_at", "interview_type", "venue_or_link", "notes", "outcome"), values))),
+                        .values(**fields),
                         execution_options={"synchronize_session": False})
         return _owned_interview(session, user_id, interview_id)
     return _write(operation)

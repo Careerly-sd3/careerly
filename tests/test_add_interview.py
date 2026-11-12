@@ -1,7 +1,7 @@
 """Synthetic request/database lifecycle coverage; no configuration files or hosting."""
 from copy import deepcopy
 from contextlib import contextmanager
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from sqlalchemy.dialects import mysql as mysql_dialect
 from orm_db import TransactionConflict
 from db import DatabaseError
@@ -10,13 +10,9 @@ from datetime import datetime, date
 import importlib
 import os
 import unittest
-from unittest.mock import patch
-
-import mysql.connector
-from flask import g
 
 from auth_fixtures import AuthDatabaseFixture
-from services import auth_service as auth, interview_service as service
+from services import interview_service as service
 from services.interview_time import parse_dublin_datetime, utc_to_dublin
 import tracker_data
 
@@ -233,7 +229,7 @@ class AddInterviewTests(unittest.TestCase):
         self.assertFalse(self.database.connection.in_transaction)
 
     def test_commit_failure_rolls_back(self):
-        self.database.connection.commit.side_effect = mysql.connector.Error('synthetic secret')
+        self.database.connection.commit.side_effect = connector.Error('synthetic secret')
         response = self.client.post(self.url, data=self.form)
         self.assertEqual(response.status_code, 503)
         self.assertEqual(self.database.interviews, {})

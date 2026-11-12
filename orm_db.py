@@ -100,9 +100,8 @@ def operation_session(
     finally:
         try:
             if session is not None:
-                try:
-                    session.close()
-                except Exception:
-                    raise DatabaseError("ORM cleanup failed; check the saved outcome before retrying.") from None
+                session.close()
+        except Exception:
+            raise DatabaseError("ORM cleanup failed; check the saved outcome before retrying.") from None
         finally:
             g.pop("orm_operation_active", None)

@@ -5,9 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from db import DatabaseError
-from services import interview_service as service
 import test_edit_delete_interview as edit_tests
-import tracker_data
 
 
 class InterviewsPageTests(unittest.TestCase):

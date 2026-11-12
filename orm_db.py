@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from flask import current_app, g
 import mysql.connector
 from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, DBAPIError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
@@ -13,6 +13,14 @@ from db import DatabaseError, create_verified_connection
 
 class TransactionConflict(DatabaseError):
     """Refuse entry without touching caller-owned work."""
+
+
+class ORMDatabaseError(DatabaseError):
+    """Safe ORM failure: retain only a genuine connector's numeric error code."""
+
+    def __init__(self, message, *, connector_errno=None):
+        super().__init__(message)
+        self.connector_errno = connector_errno
 
 
 def _orm_connection():
@@ -48,8 +56,15 @@ def get_engine():
 
 
 @contextmanager
-def operation_session():
-    """Own one fresh session; refuse active legacy/nested work before cleanup."""
+def operation_session(
+    *, read_only=False,
+    error_message="Could not save your notes. Check your tracker before retrying.",
+):
+    """Own one fresh session; read-only scopes roll back, write scopes commit.
+
+    read_only selects cleanup behaviour; it does not change MySQL settings.
+    Refuse active legacy/nested work before acquiring any new resources.
+    """
     if g.get("orm_operation_active", False):
         raise TransactionConflict("Finish the active ORM operation first.")
     legacy = g.get("mysql_connection")
@@ -68,15 +83,20 @@ def operation_session():
         try:
             session.begin()
             yield session
-            session.commit()
+            if read_only:
+                session.rollback()
+            else:
+                session.commit()
         except BaseException:
             try:
                 session.rollback()
             except Exception:
                 raise DatabaseError("Rollback failed; check the saved outcome before retrying.") from None
             raise
-    except SQLAlchemyError:
-        raise DatabaseError("Could not save your notes. Check your tracker before retrying.") from None
+    except SQLAlchemyError as error:
+        original = error.orig if isinstance(error, DBAPIError) else None
+        errno = original.errno if isinstance(original, mysql.connector.Error) else None
+        raise ORMDatabaseError(error_message, connector_errno=errno) from None
     finally:
         try:
             if session is not None:

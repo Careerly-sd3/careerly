@@ -45,12 +45,9 @@ class InterviewDatabase(AuthDatabaseFixture):
 
     def cursor(self, **options):
         cursor = super().cursor(**options)
-        auth_execute = cursor.execute.side_effect
 
         def execute(query, parameters):
             self.queries.append((query, parameters))
-            if query in (auth.USER_BY_ID, auth.USER_BY_EMAIL, auth.CREATE_USER):
-                return auth_execute(query, parameters)
             self.connection.in_transaction = True
             if query in (service.APPLICATION_QUERY, service.APPLICATION_QUERY + ' FOR UPDATE'):
                 row = self.applications.get(parameters[0])
@@ -121,11 +118,14 @@ class AddInterviewTests(unittest.TestCase):
 
         def provider():
             # Exercise the actual context cleanup on the same connection used by
-            # user_loader, preflight SELECT, guarded write and tracker reads.
+            # preflight SELECT, guarded write and tracker reads. Authentication
+            # now uses its own operation-scoped ORM boundary.
             g.mysql_connection = self.database.connection
             return self.database.connection
-        for target in ('services.auth_service.get_db', 'services.interview_service.get_db', 'tracker_data.get_db'):
+        for target in ('services.interview_service.get_db', 'tracker_data.get_db'):
             p = patch(target, side_effect=provider); p.start(); self.addCleanup(p.stop)
+        auth_provider = patch('services.auth_service.operation_session', side_effect=self.database.auth_operation)
+        auth_provider.start(); self.addCleanup(auth_provider.stop)
         self.client = self.module.app.test_client()
         with self.client.session_transaction() as session:
             session['_user_id'] = '101'; session['_fresh'] = True

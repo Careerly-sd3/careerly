@@ -66,7 +66,7 @@ class LogoutTests(unittest.TestCase):
         self.addCleanup(config.stop)
         self.client = self.module.app.test_client()
         self.database = AuthDatabaseFixture()
-        provider = patch("services.auth_service.get_db", return_value=self.database.connection)
+        provider = patch("services.auth_service.operation_session", side_effect=self.database.auth_operation)
         provider.start()
         self.addCleanup(provider.stop)
         self.forms = [

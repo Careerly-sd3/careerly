@@ -1,31 +1,24 @@
-"""Persistent registration/login via the shared verified MySQL connection.
+"""Persistent authentication through operation-scoped SQLAlchemy transactions.
 
-No environment loading, schema creation, ORM or in-memory user fallback.
-Reads finish only read transactions they opened. Registration requires an idle
-connection and owns its explicit transaction, preserving unrelated caller work.
+Reads roll back and close before subsequent writes. All operations refuse active
+legacy/ORM caller work without touching it. Routes receive the detached User
+adapter, never a mapped entity. No environment loading or schema creation.
 """
-from contextlib import closing
 from datetime import datetime, timezone
 import re
 
 from flask_login import UserMixin, current_user
-import mysql.connector
+from sqlalchemy import select
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from db import DatabaseError, get_db
+from db import DatabaseError
+from models import User as UserRecord
+from orm_db import operation_session, ORMDatabaseError
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
 MAX_NAME_LENGTH = 100
 MAX_EMAIL_LENGTH = 255
-
-USER_COLUMNS = "`user_id`, `name`, `email`, `password_hash`, `phone_number`, `created_at`, `cv_text`"
-USER_BY_EMAIL = "SELECT " + USER_COLUMNS + " FROM `User` WHERE `email` = %s"
-USER_BY_ID = "SELECT " + USER_COLUMNS + " FROM `User` WHERE `user_id` = %s"
-CREATE_USER = """
-    INSERT INTO `User` (`name`, `email`, `password_hash`, `created_at`)
-    VALUES (%s, %s, %s, %s)
-"""
 
 
 class EmailAlreadyExists(Exception):
@@ -76,39 +69,31 @@ def normalise_email(email):
     return (email or "").strip().lower()
 
 
-def _read_user(query, parameters):
-    connection = get_db()
-    try:
-        owns_read = not connection.in_transaction
-    except mysql.connector.Error:
-        raise DatabaseError("Could not inspect the authentication transaction.") from None
-    try:
-        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
-            cursor.execute(query, parameters)
-            row = cursor.fetchone()
-        if row is None:
-            return None
-        return User(id=row["user_id"], name=row["name"], email=row["email"],
-                    password_hash=row["password_hash"], phone_number=row.get("phone_number"),
-                    created_at=row.get("created_at"), cv_text=row.get("cv_text"))
-    except mysql.connector.Error:
-        raise DatabaseError("Could not load the user account. Please try again later.") from None
-    finally:
-        if owns_read:
-            try:
-                connection.rollback()
-            except mysql.connector.Error:
-                raise DatabaseError("Could not finish the authentication read transaction.") from None
+def _adapter(record):
+    return User(id=record.user_id, name=record.name, email=record.email,
+                password_hash=record.password_hash, phone_number=record.phone_number,
+                created_at=record.created_at, cv_text=record.cv_text)
+
+
+def _read_user(statement):
+    with operation_session(
+        read_only=True,
+        error_message="Could not load the user account. Please try again later.",
+    ) as session:
+        record = session.execute(statement).scalar_one_or_none()
+        result = None if record is None else _adapter(record)
+    return result
 
 
 def get_user_by_email(email):
-    return _read_user(USER_BY_EMAIL, (normalise_email(email),))
+    return _read_user(select(UserRecord).where(UserRecord.email == normalise_email(email)))
 
 
 def get_user_by_id(user_id):
     """Invalid IDs resolve without SQL; absent persisted users also return None."""
     identity = _persisted_id(user_id)
-    return None if identity is None else _read_user(USER_BY_ID, (identity,))
+    return None if identity is None else _read_user(
+        select(UserRecord).where(UserRecord.user_id == identity))
 
 
 def email_exists(email):
@@ -162,30 +147,22 @@ def create_user(form):
     email = normalise_email(form.get("email"))
     password_hash = generate_password_hash(form.get("password"))
     created_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-    connection = get_db()
     try:
-        if connection.autocommit is not False or connection.in_transaction:
-            raise DatabaseError("Finish the caller's transaction before registering a user.")
-    except mysql.connector.Error:
-        raise DatabaseError("Could not inspect the registration transaction.") from None
-    try:
-        connection.start_transaction()
-        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
-            cursor.execute(CREATE_USER, (name, email, password_hash, created_at))
-            identity = _persisted_id(cursor.lastrowid)
-            if identity is None:
+        with operation_session(
+            error_message="Could not register the account; check the outcome before retrying.",
+        ) as session:
+            record = UserRecord(name=name, email=email, password_hash=password_hash,
+                                created_at=created_at)
+            session.add(record)
+            session.flush()
+            if _persisted_id(record.user_id) is None:
                 raise DatabaseError("Registration did not return a valid database user ID.")
-        connection.commit()
-        return User(id=identity, name=name, email=email, password_hash=password_hash, created_at=created_at)
-    except BaseException as error:
-        try:
-            connection.rollback()
-        except mysql.connector.Error:
-            raise DatabaseError("Registration rollback failed; check the outcome before retrying.") from None
-        if isinstance(error, mysql.connector.Error):
-            if error.errno == 1062:
-                raise EmailAlreadyExists() from None
-            raise DatabaseError("Could not register the account; check the outcome before retrying.") from None
+            result = _adapter(record)
+        # Return only after the operation context has committed and closed.
+        return result
+    except ORMDatabaseError as error:
+        if error.connector_errno == 1062:
+            raise EmailAlreadyExists() from None
         raise
 
 

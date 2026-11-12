@@ -44,12 +44,14 @@ See the proposed [database design](docs/database/database-design.md) for CAR-2.
 ## Database connection and authentication
 
 Use `SECRET_KEY` and the six `MYSQL_*` settings in `.env.example`; there is no
-separate `DB_*` configuration. Application-note updates use operation-scoped SQLAlchemy;
-other workflows retain the shared connector interface. See the
+separate `DB_*` configuration. Authentication and application-note updates use
+operation-scoped SQLAlchemy; interviews and tracker reads retain the shared
+connector interface. See the
 [ORM migration rules](docs/database/sqlalchemy-migration.md) and
 [MySQL setup](docs/database/mysql-setup.md).
 Registration, login and Flask-Login user loading use the existing MySQL `User`
-table through `db.get_db()`. Authentication has local mocked coverage. User-reported interview browser results
+table through mapped SQLAlchemy queries and the existing plain User adapter.
+Authentication has local mocked and disposable MySQL coverage. User-reported interview browser results
 are linked below; comprehensive hosted authentication testing is not claimed.
 Owned applications on Tracker open the reusable Add interview form; the listing
 is on the authenticated Interviews page. Saves use the

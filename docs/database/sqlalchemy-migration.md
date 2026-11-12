@@ -2,14 +2,15 @@
 
 ## Connection and transaction contract
 
-Application notes alone use SQLAlchemy directly. Authentication, interviews and
-tracker reads keep the legacy get_db interface. One validator and verified
+Authentication and application notes use SQLAlchemy directly. Interview operations
+and tracker reads keep the legacy get_db interface. One validator and verified
 connection factory supply both paths. No schema creation or rebuild is required.
 The six explicit mappings describe existing tables; never call create_all or drop_all.
 
 The engine is lazy and uses NullPool. Each ORM operation gets a fresh session,
 with autobegin and autoflush disabled and expire_on_commit disabled. The operation
-explicitly begins, commits on success, rolls back on failure and always closes.
+explicitly begins, commits successful writes, rolls back successful read-only
+scopes or failures, and always closes.
 An active legacy transaction (or legacy autocommit) refuses ORM entry without
 changing that connection. Legacy access and nested ORM entry are refused while
 an ORM operation owns the context. Separate connections never share a transaction.
@@ -37,8 +38,8 @@ verified the new infrastructure on MySQL 8.4.11 as recorded below. Hosted writes
 and locking remain unverified. Existing data UTC semantics and populated-data
 recovery remain unproven.
 
-Implementation verification: baseline 167 local unittest tests passed; the final
-suite passes 184 tests, including schema fidelity, MySQL expression compilation,
+Stage 1 verification: baseline 167 local unittest tests passed; its checkpoint
+suite passed 184 tests, including schema fidelity, MySQL expression compilation,
 transaction exclusion, cleanup/commit failures and notes route security. Existing
 behaviour tests remain unchanged. Run with:
 
@@ -126,3 +127,66 @@ Hosted writes/locking and ambiguous commit outcomes were not verified. The
 read-only check does not establish account-level REQUIRE SSL policy, stored UTC
 semantics or populated-data recovery. No hosted recheck is required to create
 this local checkpoint.
+
+## Stage 2: authentication
+
+Registration, email lookup, persisted ID lookup, duplicate-email precheck, login
+and Flask-Login reload now query the mapped User table. Routes continue receiving
+the existing plain User adapter with unchanged id/user_id/get_id behaviour; no
+attached mapped entity leaves the service. Routes, templates, logout, remember
+cookies, CSRF and trusted ownership identity are unchanged. Interview operations
+and tracker reads still use raw SQL; migration/diagnostic SQL remains intentional.
+
+Authentication reads use operation_session(read_only=True): an explicit local
+transaction is rolled back and its session/connection closed before returning.
+This mode changes cleanup behaviour, not MySQL session settings. Reads now refuse
+active legacy caller transactions as well as nested ORM work, leaving them
+untouched rather than joining another connection's unit of work. Callers must
+finish their own transaction before invoking authentication. Ordinary user reload
+runs before tracker/interview access, so no shared request-wide transaction is
+introduced. Tests cover auth reads followed by notes and legacy interview writes.
+
+Registration retains normalisation, signed positive INT identities, existing
+Werkzeug hashing, and explicit naive UTC created_at at second precision. It adds
+and flushes a mapped record to retrieve its generated ID inside one transaction,
+then commits/closes before returning the plain adapter. ORMDatabaseError retains
+only a numeric errno from an actual mysql.connector.Error wrapped by SQLAlchemy.
+Only 1062 becomes EmailAlreadyExists; unrelated integrity errors and commit errors
+remain safe DatabaseError results. No raw SQL fallback or password-format changes
+are introduced. Read errors, rollback/cleanup failures, and signed-session outage
+recovery remain covered. Existing supported hashes are verified without rewriting.
+
+Stage 2 evidence: the clean e107eee baseline passed 184 local tests. The updated
+suite passes 190 tests, and the disposable MySQL 8.0.41 runner passes 43 checks
+(the original 20 plus 23 authentication checks). Added checks cover registration,
+login and ID reload across distinct physical connections; unique-email prechecks
+and actual duplicate inserts under case/accent-insensitive collation; historic
+PBKDF2 hashes; generated IDs and UTC precision; caller-work refusal; auth reads
+followed by notes/interview writes; and registration commit failure/rollback and
+subsequent recovery. Route fixtures were adapted at the ORM boundary while their
+security/behaviour assertions were retained. No new dependencies were installed.
+
+These checks used a newly initialised UUID-verified, loopback-only disposable
+server with generated strict TLS certificates and synthetic records only. No
+Aiven connection or existing developer-record access occurred during stage 2.
+The initial accent-test literal suffered shell encoding replacement; the fixture
+now uses an explicit Unicode escape, and the full isolated run passed afterward.
+The temporary server/data directory were shut down and cleaned up.
+
+Limits: stage 1's read-only Aiven MySQL 8.4.11 result applies to the shared
+infrastructure/mappings, not stage 2 authentication persistence. Hosted auth
+writes and locking have not been tested. Local MySQL is 8.0.41 rather than 8.4.11;
+repeat the disposable procedure on 8.4.11 before release. Injected pre-completion
+commit failures do not prove recovery from a network failure after server commit.
+Populated-data recovery, stored UTC semantics, and broader concurrent-registration
+behaviour beyond constraint enforcement remain separate checks.
+
+Stage 2 checkpoint review inspected every change against e107eee, including the
+ORM route-fixture adaptations. No production defect or additional workflow
+migration was needed. The full review run passed 190 local tests and 43 disposable
+MySQL 8.0.41 checks; pip check and unstaged/staged whitespace checks passed.
+There is no hosted authentication-write verification, no MySQL 8.4.11
+write/persistence verification, and no proof of ambiguous commit outcomes.
+Only the stage 2 service/helper changes, adapted/extended tests and documentation
+belong to this checkpoint; the shared strict TLS configuration and six mappings
+remain unchanged from stage 1.

@@ -29,7 +29,7 @@ class EmailAlreadyExists(Exception):
 
 
 class User(UserMixin):
-    """Flask-Login adapter for a persisted User row; no second data model."""
+    """Plain Flask-Login adapter; retains no mapped entity or session."""
 
     def __init__(self, id, name, email, password_hash, *, phone_number=None,
                  created_at=None, cv_text=None):

@@ -3,7 +3,7 @@
 import importlib
 import os
 import unittest
-from unittest.mock import ANY, call, patch
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from werkzeug.security import check_password_hash
@@ -65,7 +65,6 @@ class MainMergeTests(unittest.TestCase):
             "application_id": 501, "company": "Qualcomm", "job_title": "Synthetic role",
             "status": "Applied", "applied_at": None, "closing_date": None,
         }
-        from services import interview_service
         session = MagicMock()
         calls = []
         def execute(statement):

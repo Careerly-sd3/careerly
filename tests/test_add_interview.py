@@ -1,5 +1,11 @@
 """Synthetic request/database lifecycle coverage; no configuration files or hosting."""
 from copy import deepcopy
+from contextlib import contextmanager
+from unittest.mock import MagicMock
+from sqlalchemy.dialects import mysql as mysql_dialect
+from orm_db import TransactionConflict
+from db import DatabaseError
+import mysql.connector as connector
 from datetime import datetime, date
 import importlib
 import os
@@ -16,6 +22,7 @@ import tracker_data
 
 
 class InterviewDatabase(AuthDatabaseFixture):
+    """Synthetic ORM boundary for route regressions; no real database or SQL parser."""
     def __init__(self):
         super().__init__()
         self.applications = {
@@ -27,6 +34,7 @@ class InterviewDatabase(AuthDatabaseFixture):
         self.interviews = {}
         self.saved = None
         self.fail = False
+        self.fail_read = False
         self.queries = []
 
     def start(self):
@@ -43,62 +51,88 @@ class InterviewDatabase(AuthDatabaseFixture):
             self.interviews = self.saved
         self.saved = None
 
-    def cursor(self, **options):
-        cursor = super().cursor(**options)
-
-        def execute(query, parameters):
-            self.queries.append((query, parameters))
-            self.connection.in_transaction = True
-            if query in (service.APPLICATION_QUERY, service.APPLICATION_QUERY + ' FOR UPDATE'):
-                row = self.applications.get(parameters[0])
-                cursor.fetchone.return_value = deepcopy(row) if row and row['user_id'] == parameters[1] else None
-            elif query == service.CREATE_QUERY:
+    @contextmanager
+    def interview_operation(self, *, read_only=False, error_message=None):
+        if self.connection.in_transaction or self.connection.autocommit is not False:
+            raise TransactionConflict('Finish caller work first')
+        session = MagicMock()
+        pending = []
+        session.add.side_effect = pending.append
+        def flush():
+            for record in pending:
                 if self.fail:
-                    raise mysql.connector.Error('synthetic internal SQL/password details')
-                when, kind, venue, notes, outcome, app_id, owner = parameters
-                assert self.applications[app_id]['user_id'] == owner
+                    raise connector.Error('private write details')
                 identity = len(self.interviews) + 901
-                self.interviews[identity] = dict(interview_id=identity, application_id=app_id,
-                    scheduled_at=when, interview_type=kind, venue_or_link=venue, notes=notes, outcome=outcome,
-                    company=self.applications[app_id]['company'], job_title=self.applications[app_id]['job_title'])
-                cursor.rowcount, cursor.lastrowid = 1, identity
-            elif query in (service.OWNED_INTERVIEW_QUERY, service.OWNED_INTERVIEW_QUERY + ' FOR UPDATE'):
-                row = self.interviews.get(parameters[0])
-                cursor.fetchone.return_value = deepcopy(row) if row and self.applications[row['application_id']]['user_id'] == parameters[1] else None
-            elif query in (service.UPDATE_QUERY, service.DELETE_QUERY, service.NOTES_QUERY):
-                if self.fail:
-                    raise mysql.connector.Error('synthetic internal SQL/password details')
-                identity, owner = parameters[-2:]
-                row = self.interviews.get(identity)
-                if not row or self.applications[row['application_id']]['user_id'] != owner:
-                    cursor.rowcount = 0
-                elif query == service.DELETE_QUERY:
-                    del self.interviews[identity]
-                    cursor.rowcount = 1
-                elif query == service.NOTES_QUERY:
-                    cursor.rowcount = int(row['notes'] != parameters[0])
-                    row['notes'] = parameters[0]
+                record.interview_id = identity
+                app = self.applications[record.application_id]
+                self.interviews[identity] = {c.name: getattr(record, c.name) for c in record.__table__.columns} | dict(job_title=app['job_title'], company=app['company'])
+                self.queries.append(('create', (record.scheduled_at, record.interview_type, record.venue_or_link, record.notes, record.outcome, record.application_id, app['user_id'])))
+            pending.clear()
+        def execute(statement, **options):
+            params = statement.compile(dialect=mysql_dialect.dialect()).params
+            result = MagicMock()
+            row = None
+            if statement.is_select:
+                if self.fail_read:
+                    raise connector.Error('private read details')
+                if 'interview_id' in statement.selected_columns.keys():
+                    if 'interview_id_1' in params:
+                        kind = 'owned' + (' FOR UPDATE' if statement._for_update_arg is not None else '')
+                        parameters = (params['interview_id_1'], params['user_id_1'])
+                        candidate = self.interviews.get(parameters[0])
+                        row = deepcopy(candidate) if candidate and self.applications[candidate['application_id']]['user_id'] == parameters[1] else None
+                    else:
+                        kind = 'list'
+                        cutoff = params['cutoff']
+                        parameters = (params['user_id_1'], cutoff, cutoff, cutoff)
+                        values = [deepcopy(r) for r in self.interviews.values() if self.applications[r['application_id']]['user_id'] == parameters[0]]
+                        future = sorted((r for r in values if r['scheduled_at'] >= cutoff), key=lambda r:(r['scheduled_at'],r['interview_id']))
+                        past = sorted((r for r in values if r['scheduled_at'] < cutoff), key=lambda r:r['interview_id'])
+                        past.sort(key=lambda r:r['scheduled_at'], reverse=True)
+                        result.mappings.return_value.all.return_value = future+past
+                elif 'application_id_1' in params:
+                    kind = 'application' + (' FOR UPDATE' if statement._for_update_arg is not None else '')
+                    parameters = (params['application_id_1'],params['user_id_1'])
+                    candidate = self.applications.get(parameters[0])
+                    row = deepcopy(candidate) if candidate and candidate['user_id']==parameters[1] else None
                 else:
-                    fields = ('scheduled_at', 'interview_type', 'venue_or_link', 'notes', 'outcome')
-                    values = dict(zip(fields, parameters[:-2]))
-                    cursor.rowcount = int(any(row[key] != value for key, value in values.items()))
-                    row.update(values)
-            elif query == service.LIST_QUERY:
-                assert parameters[1] == parameters[2] == parameters[3]
-                rows = [deepcopy(row) for row in self.interviews.values()
-                        if self.applications[row['application_id']]['user_id'] == parameters[0]]
-                upcoming = sorted((row for row in rows if row['scheduled_at'] >= parameters[1]),
-                                  key=lambda row: (row['scheduled_at'], row['interview_id']))
-                past = sorted((row for row in rows if row['scheduled_at'] < parameters[1]),
-                              key=lambda row: row['interview_id'])
-                past.sort(key=lambda row: row['scheduled_at'], reverse=True)
-                cursor.fetchall.return_value = upcoming + past
-            elif query == tracker_data.APPLICATIONS_QUERY:
-                cursor.fetchall.return_value = [deepcopy(row) for row in self.applications.values() if row['user_id'] == parameters[0]]
+                    kind, parameters = 'applications', (params['user_id_1'],)
+                    result.mappings.return_value.all.return_value = [deepcopy(r) for r in self.applications.values() if r['user_id']==parameters[0]]
+                result.mappings.return_value.one_or_none.return_value = row
             else:
-                raise AssertionError('Unexpected SQL')
-        cursor.execute.side_effect = execute
-        return cursor
+                if self.fail:
+                    raise connector.Error('private write details')
+                identity, owner = params['interview_id_1'], params['user_id_1']
+                row = self.interviews.get(identity)
+                owned = row is not None and self.applications[row['application_id']]['user_id']==owner
+                values = {k:v for k,v in params.items() if k not in ('interview_id_1','user_id_1')}
+                kind = 'delete' if statement.is_delete else ('notes' if set(values)=={'notes'} else 'update')
+                fields = ('scheduled_at','interview_type','venue_or_link','notes','outcome')
+                parameters = ((identity, owner) if kind=='delete' else
+                              ((values['notes'], identity,owner) if kind=='notes' else tuple(values[f] for f in fields)+(identity,owner)))
+                result.rowcount = int(owned)
+                if owned:
+                    if kind=='delete': del self.interviews[identity]
+                    else:
+                        result.rowcount = int(any(row.get(k)!=v for k,v in values.items()))
+                        row.update(values)
+            self.queries.append((kind, parameters))
+            return result
+        session.execute.side_effect = execute
+        session.flush.side_effect = flush
+        try:
+            if not read_only:
+                self.connection.start_transaction()
+            yield session
+            if read_only: self.connection.rollback()
+            else: self.connection.commit()
+        except BaseException as error:
+            self.connection.rollback()
+            if isinstance(error, connector.Error):
+                raise DatabaseError(error_message or 'Synthetic database failure') from None
+            raise
+        finally:
+            session.close()
 
 
 class AddInterviewTests(unittest.TestCase):
@@ -116,14 +150,9 @@ class AddInterviewTests(unittest.TestCase):
             email=f'{identity}@example.invalid', password_hash='not-a-real-hash', created_at=datetime(2026, 1, 1))
             for identity in (101, 102)}
 
-        def provider():
-            # Exercise the actual context cleanup on the same connection used by
-            # preflight SELECT, guarded write and tracker reads. Authentication
-            # now uses its own operation-scoped ORM boundary.
-            g.mysql_connection = self.database.connection
-            return self.database.connection
-        for target in ('services.interview_service.get_db', 'tracker_data.get_db'):
-            p = patch(target, side_effect=provider); p.start(); self.addCleanup(p.stop)
+        for target in ('services.interview_service.operation_session', 'tracker_data.operation_session'):
+            p = patch(target, side_effect=self.database.interview_operation)
+            p.start(); self.addCleanup(p.stop)
         auth_provider = patch('services.auth_service.operation_session', side_effect=self.database.auth_operation)
         auth_provider.start(); self.addCleanup(auth_provider.stop)
         self.client = self.module.app.test_client()
@@ -157,12 +186,12 @@ class AddInterviewTests(unittest.TestCase):
         self.assertIn(b'Interview added.', response.data)
         self.assertIn(b'2:30 PM', response.data)
         self.assertIn(b'data-interview-id="901"', response.data)
-        self.assertEqual(sum(q == service.LIST_QUERY for q, _ in self.database.queries), 1)
+        self.assertEqual(sum(q == 'list' for q, _ in self.database.queries), 1)
         tracker_response = self.client.get('/tracker')
         self.assertNotIn(b'id="interviews-table"', tracker_response.data)
         self.assertIn(self.url.encode(), tracker_response.data)
         self.assertNotIn(b'Other role', response.data)
-        self.assertEqual(sum(q == service.LIST_QUERY for q, _ in self.database.queries), 2)
+        self.assertEqual(sum(q == 'list' for q, _ in self.database.queries), 2)
         self.assertEqual(self.database.applications[501]['status'], 'Applied')
 
     def test_invalid_fields_preserved_and_no_write(self):

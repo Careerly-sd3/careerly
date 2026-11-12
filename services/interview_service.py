@@ -1,93 +1,21 @@
-"""Owner-scoped interview data access using the shared verified connection.
+"""Owner-scoped ORM interview operations returning fully materialised dictionaries.
 
-Callers must supply a trusted, persisted User.user_id from Flask-Login,
-never a submitted identity. NotFound maps to 404.
-
-Reads return dictionaries (lists for listing), with every Interview column,
-job_title and company. Legacy NULL outcomes are presented as Pending only.
-scheduled_at is a naive UTC datetime matching MySQL DATETIME (second precision).
-Inputs may be naive UTC or aware datetimes; aware values are converted to UTC.
-Local wall-clock parsing and DST validation belong to the form layer.
-
-Reads end only read transactions they started, without committing. A caller's
-already-active transaction is preserved. This lets ownership preflight reads
-complete before a separate, guarded write transaction in the same request.
-
-Writes require an idle, autocommit-disabled db.get_db() connection. An active
-caller transaction (including an earlier transactional read) is refused without
-commit or rollback. Callers must end their own unit of work first. Each write
-owns its transaction, closes its cursor, then commits; failures roll back.
-No caller-owned connection is closed here; Flask teardown remains responsible.
+Public operations own explicit sessions; Tracker shares its read session through
+_list_interviews. Writes lock/recheck ownership and commit atomically. Legacy or
+nested ORM caller work is refused untouched. Naive UTC/Dublin rules are unchanged.
 """
-
-from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 
-import mysql.connector
+from sqlalchemy import select, update, delete, case, bindparam
 
-from db import DatabaseError, get_db
+from db import DatabaseError
+from models import JobApplication, Company, Interview
+from orm_db import operation_session, TransactionConflict
 
 
 INTERVIEW_TYPES = ("online", "phone", "technical", "onsite")
 OUTCOMES = ("Pending", "Passed", "Failed")
 DEFAULT_OUTCOME = "Pending"
-
-APPLICATION_QUERY = """
-    SELECT a.application_id, a.user_id, a.company_id, a.job_title, a.status,
-           c.name AS company
-    FROM `JobApplication` a
-    JOIN `Company` c ON c.company_id = a.company_id
-    WHERE a.application_id = %s AND a.user_id = %s
-"""
-
-INTERVIEW_QUERY = """
-    SELECT i.interview_id, i.application_id, i.scheduled_at, i.interview_type,
-           i.venue_or_link, i.notes, i.outcome, a.job_title, c.name AS company
-    FROM `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    JOIN `Company` c ON c.company_id = a.company_id
-"""
-
-OWNED_INTERVIEW_QUERY = INTERVIEW_QUERY + """
-    WHERE i.interview_id = %s AND a.user_id = %s
-"""
-
-LIST_QUERY = INTERVIEW_QUERY + """
-    WHERE a.user_id = %s
-    ORDER BY CASE WHEN i.scheduled_at >= %s THEN 0 ELSE 1 END ASC,
-             CASE WHEN i.scheduled_at >= %s THEN i.scheduled_at END ASC,
-             CASE WHEN i.scheduled_at < %s THEN i.scheduled_at END DESC,
-             i.interview_id ASC
-"""
-
-CREATE_QUERY = """
-    INSERT INTO `Interview`
-        (application_id, scheduled_at, interview_type, venue_or_link, notes, outcome)
-    SELECT a.application_id, %s, %s, %s, %s, %s
-    FROM `JobApplication` a
-    WHERE a.application_id = %s AND a.user_id = %s
-"""
-
-UPDATE_QUERY = """
-    UPDATE `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    SET i.scheduled_at = %s, i.interview_type = %s, i.venue_or_link = %s,
-        i.notes = %s, i.outcome = %s
-    WHERE i.interview_id = %s AND a.user_id = %s
-"""
-
-DELETE_QUERY = """
-    DELETE i FROM `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    WHERE i.interview_id = %s AND a.user_id = %s
-"""
-
-NOTES_QUERY = """
-    UPDATE `Interview` i
-    JOIN `JobApplication` a ON a.application_id = i.application_id
-    SET i.notes = %s
-    WHERE i.interview_id = %s AND a.user_id = %s
-"""
 
 
 class InterviewNotFound(LookupError):
@@ -167,157 +95,161 @@ def _present(row):
     return result
 
 
-def _owned_interview(cursor, user_id, interview_id, *, lock=False):
-    query = OWNED_INTERVIEW_QUERY + (" FOR UPDATE" if lock else "")
-    cursor.execute(query, (interview_id, user_id))
-    row = cursor.fetchone()
+def _application_statement(user_id, application_id):
+    return (select(JobApplication.application_id, JobApplication.user_id,
+                   JobApplication.company_id, JobApplication.job_title,
+                   JobApplication.status, Company.name.label("company"))
+            .select_from(JobApplication)
+            .join(Company, Company.company_id == JobApplication.company_id)
+            .where(JobApplication.application_id == application_id,
+                   JobApplication.user_id == user_id))
+
+
+def _interview_statement():
+    return (select(*Interview.__table__.columns, JobApplication.job_title,
+                   Company.name.label("company"))
+            .select_from(Interview)
+            .join(JobApplication, JobApplication.application_id == Interview.application_id)
+            .join(Company, Company.company_id == JobApplication.company_id))
+
+
+def _owned_interview(session, user_id, interview_id, *, lock=False):
+    query = _interview_statement().where(
+        Interview.interview_id == interview_id, JobApplication.user_id == user_id)
+    if lock:
+        query = query.with_for_update()
+    row = session.execute(query).mappings().one_or_none()
     if row is None:
         raise InterviewNotFound()
     return _present(row)
 
 
 def _write(operation):
-    connection = get_db()
     try:
-        if connection.autocommit is not False or connection.in_transaction:
-            raise InterviewTransactionError(
-                "Interview writes require an idle connection with autocommit disabled; "
-                "finish the caller's transaction first."
-            )
-    except mysql.connector.Error:
-        raise DatabaseError("Could not inspect the interview transaction state.") from None
-
-    try:
-        connection.start_transaction()
-        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
-            result = operation(cursor)
-        connection.commit()
+        with operation_session(
+            error_message="Could not save the interview change; check its outcome before retrying.",
+        ) as session:
+            result = operation(session)
         return result
-    except BaseException as error:
-        # The idle guard above ensures this rollback cannot discard caller work.
-        try:
-            connection.rollback()
-        except mysql.connector.Error:
-            raise DatabaseError(
-                "Interview rollback failed; the write outcome must be checked before retrying."
-            ) from None
-        if isinstance(error, mysql.connector.Error):
-            raise DatabaseError(
-                "Could not save the interview change; check its outcome before retrying."
-            ) from None
-        raise
-
-
-@contextmanager
-def _read_cursor():
-    connection = get_db()
-    owns_read = not connection.in_transaction
-    try:
-        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
-            yield cursor
-    finally:
-        if owns_read:
-            connection.rollback()
+    except TransactionConflict:
+        raise InterviewTransactionError("Finish the caller's transaction before saving interviews.") from None
 
 
 def get_owned_application(user_id, application_id):
     """Return application context for the entry point, or InterviewNotFound."""
     _validate_id(user_id, "user_id")
     _validate_id(application_id, "application_id")
-    try:
-        with _read_cursor() as cursor:
-            cursor.execute(APPLICATION_QUERY, (application_id, user_id))
-            row = cursor.fetchone()
-            if row is None:
-                raise InterviewNotFound()
-            return dict(row)
-    except mysql.connector.Error:
-        raise DatabaseError("Could not load the application for this interview.") from None
+    with operation_session(
+        read_only=True, error_message="Could not load the application for this interview.",
+    ) as session:
+        row = session.execute(_application_statement(user_id, application_id)).mappings().one_or_none()
+        if row is None:
+            raise InterviewNotFound()
+        result = dict(row)
+    return result
+
+
+def _list_statement(user_id, cutoff):
+    cutoff = bindparam("cutoff", cutoff)
+    upcoming = Interview.scheduled_at >= cutoff
+    return (_interview_statement().where(JobApplication.user_id == user_id)
+            .order_by(case((upcoming, 0), else_=1).asc(),
+                      case((upcoming, Interview.scheduled_at)).asc(),
+                      case((Interview.scheduled_at < cutoff, Interview.scheduled_at)).desc(),
+                      Interview.interview_id.asc()))
+
+
+def _list_interviews(session, user_id, *, cutoff):
+    """Borrow Tracker's explicitly owned read unit; never begin/end it here."""
+    _validate_id(user_id, "user_id")
+    cutoff = _utc(cutoff, "cutoff")
+    return [_present(row) for row in session.execute(_list_statement(user_id, cutoff)).mappings().all()]
 
 
 def list_interviews(user_id, *, cutoff=None):
     """UTC upcoming ascending, past descending, then interview_id ascending."""
     _validate_id(user_id, "user_id")
     cutoff = _utc(datetime.now(timezone.utc) if cutoff is None else cutoff, "cutoff")
-    try:
-        with _read_cursor() as cursor:
-            cursor.execute(LIST_QUERY, (user_id, cutoff, cutoff, cutoff))
-            return [_present(row) for row in cursor.fetchall()]
-    except mysql.connector.Error:
-        raise DatabaseError("Could not load your interviews.") from None
+    with operation_session(read_only=True, error_message="Could not load your interviews.") as session:
+        result = _list_interviews(session, user_id, cutoff=cutoff)
+    return result
 
 
 def get_interview(user_id, interview_id):
     """Return all interview fields and display context, or InterviewNotFound."""
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
-    try:
-        with _read_cursor() as cursor:
-            return _owned_interview(cursor, user_id, interview_id)
-    except mysql.connector.Error:
-        raise DatabaseError("Could not load this interview.") from None
+    with operation_session(read_only=True, error_message="Could not load this interview.") as session:
+        result = _owned_interview(session, user_id, interview_id)
+    return result
+
+
+def _mutation_predicates(user_id, interview_id):
+    return (Interview.interview_id == interview_id,
+            Interview.application_id.in_(select(JobApplication.application_id)
+                                         .where(JobApplication.user_id == user_id)))
 
 
 def create_interview(user_id, application_id, *, scheduled_at, interview_type,
                      venue_or_link=None, notes=None, outcome=DEFAULT_OUTCOME):
-    """Create under an owned application; commit and return the full saved row."""
+    """Create under a locked owned application; return the committed saved row."""
     _validate_id(user_id, "user_id")
     _validate_id(application_id, "application_id")
     values = _values(scheduled_at, interview_type, venue_or_link, notes, outcome)
 
-    def operation(cursor):
-        # Lock the parent so deletion/ownership changes cannot race this write.
-        cursor.execute(APPLICATION_QUERY + " FOR UPDATE", (application_id, user_id))
-        if cursor.fetchone() is None:
+    def operation(session):
+        parent = session.execute(_application_statement(user_id, application_id).with_for_update()).mappings().one_or_none()
+        if parent is None:
             raise InterviewNotFound()
-        cursor.execute(CREATE_QUERY, (*values, application_id, user_id))
-        if cursor.rowcount != 1:
-            raise InterviewNotFound()
-        return _owned_interview(cursor, user_id, cursor.lastrowid)
-
+        record = Interview(application_id=parent["application_id"],
+                           **dict(zip(("scheduled_at", "interview_type", "venue_or_link", "notes", "outcome"), values)))
+        session.add(record)
+        session.flush()
+        if type(record.interview_id) is not int or not 1 <= record.interview_id <= 2147483647:
+            raise DatabaseError("Interview creation did not return a valid persisted ID.")
+        return _owned_interview(session, user_id, record.interview_id)
     return _write(operation)
 
 
 def update_interview(user_id, interview_id, *, scheduled_at, interview_type,
                      outcome, venue_or_link=None, notes=None):
-    """Full form replacement of editable fields; application_id is immutable."""
+    """Full replacement of editable fields; application_id stays immutable."""
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
     values = _values(scheduled_at, interview_type, venue_or_link, notes, outcome)
 
-    def operation(cursor):
-        _owned_interview(cursor, user_id, interview_id, lock=True)
-        cursor.execute(UPDATE_QUERY, (*values, interview_id, user_id))
-        # MySQL may report zero affected rows for an unchanged owned interview.
-        return _owned_interview(cursor, user_id, interview_id)
-
+    def operation(session):
+        _owned_interview(session, user_id, interview_id, lock=True)
+        session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id))
+                        .values(**dict(zip(("scheduled_at", "interview_type", "venue_or_link", "notes", "outcome"), values))),
+                        execution_options={"synchronize_session": False})
+        return _owned_interview(session, user_id, interview_id)
     return _write(operation)
 
 
 def delete_interview(user_id, interview_id):
-    """Delete an owned interview and commit; return None, or InterviewNotFound."""
+    """Delete an owned interview and commit, or InterviewNotFound."""
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
 
-    def operation(cursor):
-        _owned_interview(cursor, user_id, interview_id, lock=True)
-        cursor.execute(DELETE_QUERY, (interview_id, user_id))
-        if cursor.rowcount != 1:
+    def operation(session):
+        _owned_interview(session, user_id, interview_id, lock=True)
+        result = session.execute(delete(Interview).where(*_mutation_predicates(user_id, interview_id)),
+                                 execution_options={"synchronize_session": False})
+        if result.rowcount != 1:
             raise InterviewNotFound()
-
     return _write(operation)
 
 
 def update_interview_notes(user_id, interview_id, *, notes):
-    """Update only notes, preserving whitespace and every other stored column."""
+    """Update only notes, preserving exact whitespace and other stored fields."""
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
     _validate_notes(notes)
 
-    def operation(cursor):
-        _owned_interview(cursor, user_id, interview_id, lock=True)
-        cursor.execute(NOTES_QUERY, (notes, interview_id, user_id))
-        # Zero changed rows is a successful unchanged save after ownership lock.
-        return _owned_interview(cursor, user_id, interview_id)
-
+    def operation(session):
+        _owned_interview(session, user_id, interview_id, lock=True)
+        session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id)).values(notes=notes),
+                        execution_options={"synchronize_session": False})
+        return _owned_interview(session, user_id, interview_id)
     return _write(operation)

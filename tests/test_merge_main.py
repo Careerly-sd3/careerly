@@ -7,6 +7,9 @@ from unittest.mock import ANY, call, patch
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from werkzeug.security import check_password_hash
+from sqlalchemy.dialects import mysql
+from unittest.mock import MagicMock
+from contextlib import contextmanager
 
 from auth_fixtures import AuthDatabaseFixture
 
@@ -63,37 +66,37 @@ class MainMergeTests(unittest.TestCase):
             "status": "Applied", "applied_at": None, "closing_date": None,
         }
         from services import interview_service
-        with patch("tracker_data.get_db") as database, patch("services.interview_service.get_db", return_value=database.return_value):
-            database.return_value.in_transaction = False
-            cursor = database.return_value.cursor.return_value
-
-            def execute(query, parameters):
-                self.assertIn("WHERE a.user_id = %s", query)
-                self.assertIn(parameters[0], [first.id, second.id])
-                self.assertIn(len(parameters), [1, 4])
-                self.assertIn(query, [tracker_data.APPLICATIONS_QUERY, interview_service.LIST_QUERY])
-                cursor.fetchall.return_value = (
-                    [row] if query == tracker_data.APPLICATIONS_QUERY and parameters == (first.id,) else []
-                )
-
-            cursor.execute.side_effect = execute
+        session = MagicMock()
+        calls = []
+        def execute(statement):
+            parameters = statement.compile(dialect=mysql.dialect()).params
+            owner = parameters['user_id_1']
+            self.assertIn(owner, [first.id, second.id])
+            self.assertNotIn(str(owner), str(statement.compile(dialect=mysql.dialect())))
+            is_application = 'interview_id' not in statement.selected_columns.keys()
+            calls.append(('applications' if is_application else 'list', owner))
+            result = MagicMock()
+            result.mappings.return_value.all.return_value = [row] if is_application and owner == first.id else []
+            return result
+        session.execute.side_effect = execute
+        @contextmanager
+        def read_unit(**options):
+            self.assertTrue(options['read_only'])
+            yield session
+        with patch('tracker_data.operation_session', side_effect=read_unit):
             other_client = self.module.app.test_client()
             for client, form in [(self.client, first_form), (other_client, second_form)]:
-                login = client.post("/login", data=form | {"user_id": "999999"})
+                login = client.post('/login', data=form | {'user_id': '999999'})
                 self.assertEqual(login.status_code, 302)
-                self.assertEqual(urlsplit(login.location).path, "/tracker")
-            own = self.client.get("/tracker")
+                self.assertEqual(urlsplit(login.location).path, '/tracker')
+            own = self.client.get('/tracker')
             self.assertEqual(own.status_code, 200)
-            self.assertIn(b"Qualcomm", own.data)
-            other = other_client.get("/tracker")
+            self.assertIn(b'Qualcomm', own.data)
+            other = other_client.get('/tracker')
             self.assertEqual(other.status_code, 200)
-            self.assertNotIn(b"Qualcomm", other.data)
-            self.assertEqual(cursor.execute.call_args_list, [
-                call(tracker_data.APPLICATIONS_QUERY, (first.id,)),
-                call(interview_service.LIST_QUERY, (first.id, ANY, ANY, ANY)),
-                call(tracker_data.APPLICATIONS_QUERY, (second.id,)),
-                call(interview_service.LIST_QUERY, (second.id, ANY, ANY, ANY)),
-            ])
+            self.assertNotIn(b'Qualcomm', other.data)
+        self.assertEqual(calls, [('applications', first.id), ('list', first.id),
+                                 ('applications', second.id), ('list', second.id)])
 
     def test_registration_and_login_pages_render(self):
         for route in ("/register", "/login"):

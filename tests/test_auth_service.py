@@ -188,18 +188,18 @@ class AuthServiceTests(unittest.TestCase):
 
     def test_user_loader_read_then_interview_write(self):
         from services import interview_service
-        legacy = MagicMock(in_transaction=False, autocommit=False)
-        legacy.cursor.return_value.fetchone.return_value = dict(interview_id=41, application_id=11, outcome='Pending')
-        legacy.cursor.return_value.rowcount = 1
-        g.mysql_connection = legacy
         user = auth.get_user_by_id('873')
         self.session.rollback.assert_called_once()
         self.session.close.assert_called_once()
         self.assertFalse(g.get('orm_operation_active', False))
-        with patch.object(interview_service, 'get_db', return_value=legacy):
-            interview_service.delete_interview(user.user_id, 41)
-        legacy.start_transaction.assert_called_once()
-        legacy.commit.assert_called_once()
+        result = MagicMock(rowcount=1)
+        result.mappings.return_value.one_or_none.return_value = dict(interview_id=41, application_id=11, outcome='Pending')
+        self.session.execute.side_effect = None
+        self.session.execute.return_value = result
+        interview_service.delete_interview(user.user_id, 41)
+        self.assertEqual(self.session.begin.call_count, 2)
+        self.session.commit.assert_called_once()
+        self.assertEqual(self.session.close.call_count, 2)
 
     def test_user_loader_read_then_application_notes_write(self):
         from services import application_service

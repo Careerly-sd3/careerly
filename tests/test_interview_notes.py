@@ -31,9 +31,7 @@ class InterviewNotesTests(unittest.TestCase):
         self.assertEqual(self.database.interviews[901], expected)
         self.assertEqual(self.database.interviews[902], before[902])
         queries = self.database.queries
-        self.assertIn((service.NOTES_QUERY, (notes, 901, 101)), queries)
-        self.assertNotIn(notes, service.NOTES_QUERY)
-        self.assertEqual(service.NOTES_QUERY.split('SET')[1].split('WHERE')[0].strip(), 'i.notes = %s')
+        self.assertIn(('notes', (notes, 901, 101)), queries)
         self.database.connection.commit.assert_called_once()
         self.database.connection.start_transaction.assert_called_once()
         page = self.client.get('/interviews')
@@ -60,8 +58,8 @@ class InterviewNotesTests(unittest.TestCase):
                 data={'csrf_token': token, 'notes': 'x' * 65536, 'user_id': '102'})
             self.assertEqual(response.status_code, 404)
             if identity in (902, 999):
-                self.assertIn((service.OWNED_INTERVIEW_QUERY, (identity, 101)), self.database.queries)
-            self.assertFalse(any(query == service.NOTES_QUERY for query, _ in self.database.queries))
+                self.assertIn(('owned', (identity, 101)), self.database.queries)
+            self.assertFalse(any(query == 'notes' for query, _ in self.database.queries))
         self.assertEqual(self.database.interviews, before)
         self.database.connection.start_transaction.assert_not_called()
         self.database.connection.commit.assert_not_called()
@@ -119,7 +117,7 @@ class InterviewNotesTests(unittest.TestCase):
 
     def test_service_guard_and_validation_preserve_caller_work(self):
         self.database.connection.in_transaction = True
-        with patch('services.interview_service.get_db', return_value=self.database.connection), self.assertRaises(service.InterviewTransactionError):
+        with patch('services.interview_service.operation_session', side_effect=self.database.interview_operation), self.assertRaises(service.InterviewTransactionError):
             service.update_interview_notes(101, 901, notes='changed')
         self.database.connection.rollback.assert_not_called()
         self.database.connection.commit.assert_not_called()
@@ -130,9 +128,9 @@ class InterviewNotesTests(unittest.TestCase):
 
     def test_direct_service_foreign_owner_never_updates(self):
         before = deepcopy(self.database.interviews)
-        with patch('services.interview_service.get_db', return_value=self.database.connection), self.assertRaises(service.InterviewNotFound):
+        with patch('services.interview_service.operation_session', side_effect=self.database.interview_operation), self.assertRaises(service.InterviewNotFound):
             service.update_interview_notes(102, 901, notes='changed')
-        self.assertEqual(self.database.queries, [(service.OWNED_INTERVIEW_QUERY + ' FOR UPDATE', (901, 102))])
+        self.assertEqual(self.database.queries, [('owned' + ' FOR UPDATE', (901, 102))])
         self.assertEqual(self.database.interviews, before)
         self.database.connection.rollback.assert_called_once()
         self.database.connection.commit.assert_not_called()

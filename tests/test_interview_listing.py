@@ -46,13 +46,8 @@ class InterviewListingTests(unittest.TestCase):
             listing.assert_called_once_with(101, cutoff=self.cutoff)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(InterviewRows(response.get_data(as_text=True)).ids, [3, 2, 4, 8, 9, 7])
-        queries = [(query, parameters) for query, parameters in self.database.queries if query == service.LIST_QUERY]
-        self.assertEqual(queries, [(service.LIST_QUERY, (101, self.cutoff, self.cutoff, self.cutoff))])
-        for clause in ('WHERE a.user_id = %s',
-                       'CASE WHEN i.scheduled_at >= %s THEN 0 ELSE 1 END ASC',
-                       'CASE WHEN i.scheduled_at >= %s THEN i.scheduled_at END ASC',
-                       'CASE WHEN i.scheduled_at < %s THEN i.scheduled_at END DESC', 'i.interview_id ASC'):
-            self.assertIn(clause, service.LIST_QUERY)
+        queries = [(query, parameters) for query, parameters in self.database.queries if query == 'list']
+        self.assertEqual(queries, [('list', (101, self.cutoff, self.cutoff, self.cutoff))])
         for value in (b'<table id="interviews-table"', b'Europe/Dublin', b'1:00 PM', b'<details class="interview-notes">',
                       b'notes-closed-label">View notes</span>', b'&lt;script&gt;notes&lt;/script&gt;',
                       b'href="https://example.invalid/meeting?a=1&amp;b=2"', b'Pending',
@@ -87,7 +82,7 @@ class InterviewListingTests(unittest.TestCase):
                 self.assertIn(b'/applications/501/interviews/new', response.data)
                 self.assertNotIn(b'/applications/503/interviews/new', response.data)
         page = tracker_data.load_tracker_page
-        with patch('tracker_data._fetch_all', return_value=list(self.database.applications.values())[:1]), patch('tracker_data.list_interviews', return_value=[]):
+        with patch('tracker_data._fetch_all', return_value=list(self.database.applications.values())[:1]), patch('tracker_data._list_interviews', return_value=[]):
             data = page(101, status='Rejected')
         self.assertEqual(data['applications'], [])
         self.assertEqual(data['total_applications'], 1)

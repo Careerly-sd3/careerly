@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import patch
 
 import mysql.connector
+from sqlalchemy.exc import OperationalError
+import orm_db
 
 from db import DatabaseError
 import test_add_interview as create_tests
@@ -58,11 +60,17 @@ class MainIntegrationTests(unittest.TestCase):
             loader.assert_not_called()
 
     def test_tracker_failure_logs_stack_without_driver_message_or_parameters(self):
-        self.database.connection.cursor.side_effect = mysql.connector.Error(
-            'MYSQL_PASSWORD=private-value mysql://name:password@host SELECT private_user_101')
-        with self.module.app.app_context(), self.assertLogs('tracker_data', level='ERROR') as captured:
-            with self.assertRaises(DatabaseError):
-                tracker_data._fetch_all(tracker_data.APPLICATIONS_QUERY, 101)
+        # Exercise the production translation path, not a fixture that has
+        # already stripped the sensitive driver/SQL parameter values.
+        with patch('tracker_data.operation_session', orm_db.operation_session), patch('orm_db.Session') as factory:
+            factory.return_value.execute.side_effect = OperationalError(
+                'SELECT private_user_101', {'MYSQL_PASSWORD': 'private-value'},
+                mysql.connector.Error('mysql://name:password@host private-value'))
+            with self.module.app.app_context(), self.assertLogs('tracker_data', level='ERROR') as captured:
+                with self.assertRaises(DatabaseError):
+                    tracker_data.load_tracker_page(101)
+        factory.return_value.rollback.assert_called_once()
+        factory.return_value.close.assert_called_once()
         output = '\n'.join(captured.output)
         self.assertIn('Tracker query failed', output)
         self.assertIn('Traceback (most recent call last)', output)

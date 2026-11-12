@@ -2,8 +2,8 @@
 
 ## Connection and transaction contract
 
-Authentication and application notes use SQLAlchemy directly. Interview operations
-and tracker reads keep the legacy get_db interface. One validator and verified
+Authentication, application notes, interviews and Tracker reads use SQLAlchemy
+directly. The legacy get_db adapter remains for diagnostics and verification. One validator and verified
 connection factory supply both paths. No schema creation or rebuild is required.
 The six explicit mappings describe existing tables; never call create_all or drop_all.
 
@@ -49,9 +49,8 @@ behaviour tests remain unchanged. Run with:
 
 The factory finishes verification reads only on the new ORM connection before
 SQLAlchemy takes ownership. Never retain a legacy connection for use inside an
-ORM operation or bypass get_db's exclusion guard. Tracker reads intentionally
-continue using their current legacy transaction until teardown; they cannot be
-silently joined to an ORM write. The existing authentication User adapter remains
+ORM operation or bypass get_db's exclusion guard. Tracker now owns a combined
+ORM read transaction, which cannot be silently joined to a separate write. The existing authentication User adapter remains
 separate from the mapped User class and retains the persisted ID/hash interface.
 
 ## Review fixes and isolated integration procedure
@@ -190,3 +189,136 @@ write/persistence verification, and no proof of ambiguous commit outcomes.
 Only the stage 2 service/helper changes, adapted/extended tests and documentation
 belong to this checkpoint; the shared strict TLS configuration and six mappings
 remain unchanged from stage 1.
+
+## Stage 3: interviews and Tracker
+
+All seven public interview functions now use mapped SQLAlchemy expressions:
+get_owned_application, list_interviews, get_interview, create_interview,
+update_interview, delete_interview and update_interview_notes. Public signatures,
+validation and dictionary return shapes remain unchanged. Parent ownership is
+locked/rechecked before insertion; the insert, generated ID and saved-result
+lookup share one write transaction. Interview mutations lock an owner-filtered
+join, then retain the owner predicate in UPDATE/DELETE through an owned-parent
+subquery. Application association is never an editable field. Unchanged edits
+succeed, notes-only writes update only notes, and NULL outcomes are presented as
+Pending without rewriting storage. UTC/Dublin/DST conversion remains unchanged.
+
+Tracker application/company and interview reads now borrow the same explicit
+operation_session(read_only=True). The private _list_interviews(session, ...) helper
+never begins, commits, rolls back or closes the owning session. Both query results
+are materialised as dictionaries before rollback/close; templates have no attached
+entities or lazy queries. The single cutoff is bound once across ordering cases
+and reused for card/history/practice calculations. Filters, counts, details,
+derived history, next steps and the standalone Interviews page retain their output.
+
+Internal lifecycle differences: Tracker previously kept its combined legacy read
+transaction until request teardown; it now ends immediately after both reads are
+materialised, preserving the shared snapshot across those reads. Public interview
+reads now follow the established operation contract and refuse active legacy or
+nested ORM work instead of joining a caller's active legacy transaction. Refusal
+does not commit, roll back, close or replace caller work. No isolation-level or
+MySQL session-setting changes are introduced in production. Snapshot semantics
+continue to depend on the server's isolation level, just as before.
+
+Verification: 191 local tests passed and 85 isolated MySQL 8.0.41 checks passed
+(the existing 43 plus 42 interview/Tracker checks, including 13 real-route lifecycle checks). Service tests now compile mapped
+statements for MySQL and test transaction refusal/cleanup, owner predicates,
+parent/interview locks, generated-ID and saved-lookup failures, unchanged saves,
+notes-only columns, immutable associations, NULL outcomes, ordering/cutoff and
+shared-session reads. Connector-specific route fixtures were replaced at the ORM
+boundary; authentication, CSRF, tampering, escaping, error/redirect, filtering and
+rendering assertions remain. Some obsolete cursor-mechanics tests were combined
+into session-lifecycle tests; the test count alone is not the coverage argument.
+
+The disposable runner imports tests/integration_interviews.py only after its
+new loopback server/datadir UUID has been verified and synthetic schema/data
+initialised. It checks persistence across connections, two-owner isolation, full
+CRUD/notes, UTC precision, real tie ordering, stored NULL outcomes, ownership
+changes after preflight, parent/interview lock contention, and DBAPI commit-error
+rollback. Its concurrent snapshot probe commits an interview on a separate
+connection between Tracker's two reads: the combined read excludes it, then a
+fresh read sees it. Filtering preserves totals and all public page-data keys.
+The first run's practice expectation assumed the new fixture was the soonest;
+it was corrected to assert against the actual earliest card, and the rerun passed.
+No deployed data or Aiven connection was used. The temporary server and data
+directory were cleaned up. pip check and git diff --check passed.
+
+### Remaining raw SQL inventory
+
+| Location | Purpose | Retained intentionally |
+| --- | --- | --- |
+| db.py: _verify_session / db-check | SELECT DATABASE and session SSL-cipher diagnostics | Yes; strict connection verification |
+| db_check.py: inspect_schema | Read-only information_schema/database/cipher diagnostics | Yes |
+| database/migrations/001_initial_schema.sql | Versioned schema definition | Yes; unchanged and never run against existing schema by this migration |
+| database/verify_schema.py | Explicitly opted-in synthetic schema/DML verification with rollback | Yes; specialised runner, not an application workflow; not executed here |
+| models.py: named CHECK expressions | Existing-schema mapping metadata | Yes; declarations only, no automatic schema execution |
+| tests/integration_mysql.py and tests/integration_interviews.py | Disposable setup, diagnostics, fixture data and lock probes | Yes; isolated test code only |
+
+Final application inventory found no raw SQL or legacy get_db calls in routes,
+authentication/application/interview services, Tracker page reads or template
+helpers. There is no ORM-to-SQL fallback. Keep get_db and its cleanup registration
+because the retained diagnostics and specialised verification still use them.
+No production connection options, mappings, dependency pins, routes, templates,
+JavaScript, schema migration or hosted-verification SQL changed in this stage.
+
+Limits: local MySQL 8.0.41 is not deployed MySQL 8.4.11. Stage 1's read-only Aiven
+connection/mapping evidence does not verify hosted interview/Tracker workflows,
+hosted writes/locking, or 8.4.11 write/persistence semantics. Injected commit
+failures before completion cannot prove recovery from an ambiguous network
+failure after server commit. Stored UTC semantics and populated-data recovery
+remain unverified. The stage 3 checkpoint is local only; nothing is pushed.
+
+### Stage 3 lifecycle compatibility review
+
+The review traced every production caller, rather than treating the old/new
+transaction lifetimes as interchangeable:
+
+| Caller | Database sequence and evidence |
+| --- | --- |
+| app.py: account_service_availability / load_user | Flask-Login reload completes its existing ORM read before protected views run; the plain adapter is cached for templates. |
+| app.py: tracker | Calls load_tracker_page once, then renders dictionaries. No subsequent service reads/writes depend on its transaction. |
+| tracker_data.py: load_tracker_page | The one production caller that previously depended on shared application/interview reads now passes one owning session to both private helpers. |
+| app.py: interviews / tracker_data.py: load_interviews_page | Calls public list_interviews once, then only converts/display-renders materialised rows. |
+| app.py: add_interview | get_owned_application finishes before create_interview starts its separately guarded write, or before the GET form renders. |
+| app.py: owned_interview_or_404 / edit_interview / delete_interview | get_interview preflight finishes before the write or confirmation/form rendering. |
+| app.py: save_interview_notes | get_interview preflight finishes before update_interview_notes starts; failure/missing/foreign paths never start the mutation. |
+
+No other production caller of these public reads exists in the repository, and
+none opens a legacy transaction before them. Diagnostics and specialised schema
+verification use get_db directly and never call interview/page services. They
+retain their legacy adapter and historical SQL unchanged.
+
+Conclusion 1: ending Tracker's read transaction after both results are materialised
+preserves the required shared snapshot. The concurrent local MySQL probe confirms
+that an insert committed between the two reads is invisible to the second read,
+then visible to a later fresh transaction. The new unit regression verifies that
+rollback/close and guard release happen before pure display transformations.
+Actual Tracker and Interviews route/template tests confirm there is no query
+from rendering, including cached Flask-Login identity rendering. No supported
+production path needs a longer-lived Tracker snapshot.
+
+Conclusion 2: public interview reads intentionally no longer join an arbitrary
+active legacy transaction. This is a direct-service caller-policy change, not a
+claim of blanket compatibility for outside callers. There is no such production
+caller in this repository. Tracker's prior supported shared-read use is preserved
+explicitly through _list_interviews(session, ...), with no independent nested
+session. Unit tests preserve refusal/untouched caller state, and the real MySQL
+route checks exercise authentication, GET preflights, POST preflights and all
+subsequent writes without mocked service/session boundaries. Thus no existing
+production workflow regresses; future multi-read callers must explicitly own
+and pass their session through internal helpers, never silently share get_db.
+
+Review fix: the adapted Tracker logging test previously set a generic fixture
+failure, making its sensitive-value assertions too weak. It now injects SQL,
+parameter and driver details through the real operation_session translation
+path and verifies that none appear in the safe logged traceback. Existing route
+behaviour/security assertions and pure data transformations remain covered.
+No production-code defect was found during this review.
+
+Checkpoint verification: 191 local tests, 85 isolated MySQL 8.0.41 checks,
+pip check, git diff --check and staged whitespace checks passed. Disposable
+process/data cleanup was confirmed. The added route checks import the web app
+with dotenv loading disabled and a synthetic secret, inside the already
+UUID-verified disposable database environment. They never load private .env or
+connect to Aiven. Hosted writes/locking, MySQL 8.4.11 write/persistence behaviour,
+and ambiguous commit outcomes remain unverified.

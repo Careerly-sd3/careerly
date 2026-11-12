@@ -40,10 +40,11 @@ def main():
     from flask import Flask, g
     import mysql.connector
     from sqlalchemy import event, update
-    from models import JobApplication
+    from models import JobApplication, User as UserRecord
+    from werkzeug.security import generate_password_hash
     import db
     import orm_db
-    from services import application_service as service
+    from services import application_service as service, auth_service as auth, interview_service
 
     process = None
     connection = None
@@ -223,6 +224,90 @@ def main():
                     locker.rollback()
                     lock_cursor.close()
                 check(row(1)['notes'] == 'new notes', 'FOR UPDATE contention refuses competing write safely')
+                stage = 'synthetic ORM authentication integration'
+                form = dict(name=' Synthetic Auth User ', email=' CAFEORM@EXAMPLE.INVALID ',
+                            password='Synthetic-auth-only-42!', user_id='2147483647')
+                connection_ids = []
+                with app.app_context():
+                    engine = orm_db.get_engine()
+                def record_connection(connection, record):
+                    connection_ids.append(connection.connection_id)
+                event.listen(engine, 'connect', record_connection)
+                try:
+                    with app.app_context():
+                        check(auth.validate_registration(form | {'confirm_password': form['password']}) == {}, 'registration precheck permits new email')
+                        registered = auth.create_user(form)
+                        check(registered.user_id > 2 and registered.get_id() == str(registered.id), 'registration uses generated persisted identity')
+                        check(registered.email == 'cafeorm@example.invalid' and registered.name == 'Synthetic Auth User', 'registration preserves email/name normalisation')
+                        check(registered.created_at.tzinfo is None and registered.created_at.microsecond == 0, 'registration created_at is naive UTC at second precision')
+                        check(not g.get('orm_operation_active', False), 'registration commits/closes and releases ownership')
+                    with app.app_context():
+                        logged_in = auth.authenticate(form['email'], form['password'])
+                        check(logged_in is not None and logged_in.user_id == registered.user_id, 'login persists across a separate connection')
+                        check(auth.authenticate(form['email'], 'wrong-password') is None, 'incorrect password is rejected')
+                        check(auth.authenticate('absent-auth@example.invalid', form['password']) is None, 'unknown user is rejected')
+                    with app.app_context():
+                        loaded = auth.get_user_by_id(registered.get_id())
+                        check(loaded is not None and loaded.user_id == registered.user_id, 'session identity reload persists across a separate connection')
+                        check(auth.email_exists('CAF\u00c9ORM@example.invalid'), 'email lookup respects database accent/case collation')
+                        check('email' in auth.validate_registration(form | {'confirm_password': form['password']}), 'duplicate precheck reports existing email')
+                        try:
+                            auth.create_user(form | {'email': 'CAF\u00c9ORM@example.invalid'})
+                        except auth.EmailAlreadyExists:
+                            pass
+                        else:
+                            raise AssertionError('Duplicate insert was not translated')
+                        check(auth.get_user_by_id(registered.id).password_hash == registered.password_hash, 'duplicate insert rollback preserves existing account/hash')
+                    check(len(set(connection_ids)) >= 3, 'authentication operations use distinct physical connections')
+                    historic = generate_password_hash(form['password'], method='pbkdf2:sha256:1000')
+                    with app.app_context():
+                        with orm_db.operation_session() as session:
+                            historic_record = UserRecord(name='Synthetic historic hash', email='historic@example.invalid',
+                                                         password_hash=historic, created_at=now)
+                            session.add(historic_record)
+                            session.flush()
+                            historic_id = historic_record.user_id
+                    with app.app_context():
+                        historical = auth.authenticate('historic@example.invalid', form['password'])
+                        check(historical is not None and historical.password_hash == historic, 'existing PBKDF2 hash verifies without replacement')
+                        check(auth.get_user_by_id(historic_id).password_hash == historic, 'historic stored hash remains unchanged')
+                    with app.app_context():
+                        user = auth.get_user_by_id(1)
+                        service.update_notes(user.user_id, 1, 'after auth', now=now)
+                        check(not g.get('orm_operation_active', False), 'authentication read then notes write releases both scopes')
+                        interview = interview_service.create_interview(user.user_id, 1, scheduled_at=now, interview_type='online')
+                        check(interview['application_id'] == 1, 'authentication read then legacy interview write succeeds')
+                    with app.app_context():
+                        user = auth.get_user_by_id(1)
+                        legacy = db.get_db()
+                        cursor = legacy.cursor(buffered=True)
+                        cursor.execute("UPDATE JobApplication SET notes='auth-caller-work' WHERE application_id=1")
+                        try:
+                            auth.get_user_by_id(user.user_id)
+                        except db.DatabaseError:
+                            pass
+                        else:
+                            raise AssertionError('Authentication failed to refuse active legacy work')
+                        cursor.execute('SELECT notes FROM JobApplication WHERE application_id=1')
+                        check(cursor.fetchone() == ('auth-caller-work',) and legacy.in_transaction, 'authentication refusal preserves caller transaction and pending data')
+                        legacy.rollback()
+                        cursor.close()
+                    check(row(1)['notes'] == 'after auth', 'caller rollback after authentication refusal remains independent')
+                    with app.app_context():
+                        with patch.object(engine.dialect, 'do_commit', side_effect=mysql.connector.OperationalError('synthetic private auth commit failure', errno=2013)):
+                            try:
+                                auth.create_user(form | {'email': 'rolled-back-auth@example.invalid'})
+                            except db.DatabaseError as error:
+                                check('private' not in str(error), 'registration DBAPI commit error is safe')
+                            else:
+                                raise AssertionError('Registration commit failure was ignored')
+                        check(not g.get('orm_operation_active', False), 'failed registration releases ownership')
+                    with app.app_context():
+                        check(auth.get_user_by_email('rolled-back-auth@example.invalid') is None, 'failed registration is not persisted')
+                        recovered = auth.create_user(form | {'email': 'rolled-back-auth@example.invalid'})
+                        check(recovered.id > 0, 'fresh registration succeeds after commit failure cleanup')
+                finally:
+                    event.remove(engine, 'connect', record_connection)
             print('Result: '+str(passed)+' isolated checks passed', flush=True)
         except Exception as error:
             print('FAIL: '+stage+'; '+type(error).__name__+'; errno='+str(getattr(error, 'errno', None))+'; SQLSTATE='+str(getattr(error, 'sqlstate', None))+'; details suppressed', flush=True)

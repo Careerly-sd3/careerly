@@ -4,35 +4,22 @@ Callers must supply the trusted, persisted User.user_id from Flask-Login, never 
 submitted identity. Absent and foreign-owned applications share one result
 (ApplicationNotFound), which routes map to 404.
 
-The write follows the interview service's transaction rules: it needs an idle,
-autocommit-disabled db.get_db() connection, refuses a caller's active transaction
-without committing or rolling it back, locks and rechecks ownership, then commits.
-Failures roll back. Flask supplies updated_at as naive UTC, as the schema requires.
+The write owns an operation-scoped ORM transaction. Active legacy or ORM work
+is refused without touching the caller. Ownership is locked and rechecked before
+updating notes and the explicit naive UTC timestamp.
 """
 
-from contextlib import closing
 from datetime import datetime, timezone
 
-import mysql.connector
+from sqlalchemy import select, update
 
-from db import DatabaseError, get_db
+from db import DatabaseError
+from models import JobApplication
+from orm_db import operation_session, TransactionConflict
 
 # MySQL TEXT holds at most 65,535 bytes; utf8mb4 characters take 1 to 4 bytes each.
 NOTES_MAX_BYTES = 65535
 MAX_ID = 2147483647  # signed INT primary keys
-
-LOCK_QUERY = """
-    SELECT a.application_id
-    FROM `JobApplication` a
-    WHERE a.application_id = %s AND a.user_id = %s
-    FOR UPDATE
-"""
-
-UPDATE_NOTES_QUERY = """
-    UPDATE `JobApplication`
-    SET notes = %s, updated_at = %s
-    WHERE application_id = %s AND user_id = %s
-"""
 
 
 class ApplicationNotFound(LookupError):
@@ -81,38 +68,6 @@ def _now_utc():
     return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
 
 
-def _write(operation):
-    connection = get_db()
-    try:
-        if connection.autocommit is not False or connection.in_transaction:
-            raise ApplicationTransactionError(
-                "Application writes require an idle connection with autocommit disabled; "
-                "finish the caller's transaction first."
-            )
-    except mysql.connector.Error:
-        raise DatabaseError("Could not inspect the application transaction state.") from None
-
-    try:
-        connection.start_transaction()
-        with closing(connection.cursor(dictionary=True, buffered=True)) as cursor:
-            result = operation(cursor)
-        connection.commit()
-        return result
-    except BaseException as error:
-        # The idle guard above ensures this rollback cannot discard caller work.
-        try:
-            connection.rollback()
-        except mysql.connector.Error:
-            raise DatabaseError(
-                "Rollback failed; check the application in your tracker before retrying."
-            ) from None
-        if isinstance(error, mysql.connector.Error):
-            raise DatabaseError(
-                "Could not save your notes. Check your tracker before retrying."
-            ) from None
-        raise
-
-
 def update_notes(user_id, application_id, notes, *, now=None):
     """Replace an owned application's notes; return {"notes", "updated_at"} as saved."""
     _validate_id(user_id, "user_id")
@@ -120,11 +75,19 @@ def update_notes(user_id, application_id, notes, *, now=None):
     notes = _clean_notes(notes)
     updated_at = now or _now_utc()
 
-    def operation(cursor):
-        cursor.execute(LOCK_QUERY, (application_id, user_id))
-        if cursor.fetchone() is None:
-            raise ApplicationNotFound()
-        cursor.execute(UPDATE_NOTES_QUERY, (notes, updated_at, application_id, user_id))
+    try:
+        with operation_session() as session:
+            owned = (JobApplication.application_id == application_id,
+                     JobApplication.user_id == user_id)
+            identity = session.execute(
+                select(JobApplication.application_id).where(*owned).with_for_update()
+            ).scalar_one_or_none()
+            if identity is None:
+                raise ApplicationNotFound()
+            session.execute(
+                update(JobApplication).where(*owned).values(notes=notes, updated_at=updated_at),
+                execution_options={"synchronize_session": False},
+            )
         return {"notes": notes, "updated_at": updated_at}
-
-    return _write(operation)
+    except TransactionConflict:
+        raise ApplicationTransactionError("Finish the caller's transaction before saving notes.") from None

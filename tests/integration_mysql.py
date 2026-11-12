@@ -276,7 +276,7 @@ def main():
                         service.update_notes(user.user_id, 1, 'after auth', now=now)
                         check(not g.get('orm_operation_active', False), 'authentication read then notes write releases both scopes')
                         interview = interview_service.create_interview(user.user_id, 1, scheduled_at=now, interview_type='online')
-                        check(interview['application_id'] == 1, 'authentication read then legacy interview write succeeds')
+                        check(interview['application_id'] == 1, 'authentication read then ORM interview write succeeds')
                     with app.app_context():
                         user = auth.get_user_by_id(1)
                         legacy = db.get_db()
@@ -308,6 +308,9 @@ def main():
                         check(recovered.id > 0, 'fresh registration succeeds after commit failure cleanup')
                 finally:
                     event.remove(engine, 'connect', record_connection)
+                stage = 'synthetic interview and Tracker ORM integration'
+                from integration_interviews import run_checks
+                run_checks(app, check, now)
             print('Result: '+str(passed)+' isolated checks passed', flush=True)
         except Exception as error:
             print('FAIL: '+stage+'; '+type(error).__name__+'; errno='+str(getattr(error, 'errno', None))+'; SQLSTATE='+str(getattr(error, 'sqlstate', None))+'; details suppressed', flush=True)

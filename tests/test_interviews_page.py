@@ -21,8 +21,8 @@ class InterviewsPageTests(unittest.TestCase):
         self.assertIn(b'data-interview-id="901"', response.data)
         self.assertNotIn(b'data-interview-id="902"', response.data)
         queries = [query for query, _ in self.database.queries]
-        self.assertEqual(queries.count(service.LIST_QUERY), 1)
-        self.assertNotIn(tracker_data.APPLICATIONS_QUERY, queries)
+        self.assertEqual(queries.count('list'), 1)
+        self.assertNotIn('applications', queries)
         self.assertNotIn(b'id="practice"', response.data)
 
     def test_tracker_retains_application_entry_point_next_step_and_practice(self):

@@ -3,7 +3,9 @@ from html.parser import HTMLParser
 import importlib
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from contextlib import contextmanager
+from sqlalchemy.dialects import mysql
 from urllib.parse import parse_qs, urlsplit
 
 from flask_login.utils import encode_cookie
@@ -79,24 +81,22 @@ class LogoutTests(unittest.TestCase):
             self.assertEqual(self.client.post("/register", data=form).status_code, 302)
         self.identities = [self.module.get_user_by_id(identity).user_id for identity in sorted(self.database.rows)]
         self.assertEqual(self.identities, [101, 102])
-        tracker = patch("tracker_data.get_db")
-        self.tracker = tracker.start()
-        self.addCleanup(tracker.stop)
-        self.tracker.return_value.in_transaction = False
-        interviews = patch("services.interview_service.get_db", return_value=self.tracker.return_value)
-        interviews.start()
-        self.addCleanup(interviews.stop)
         self.owners = []
-        cursor = self.tracker.return_value.cursor.return_value
-
-        def execute(query, parameters):
-            self.assertIn("WHERE a.user_id = %s", query)
-            self.assertIn(parameters[0], [101, 102])
-            self.assertIn(len(parameters), [1, 4])
-            self.owners.append(parameters[0])
-            cursor.fetchall.return_value = []
-
-        cursor.execute.side_effect = execute
+        session = MagicMock()
+        def execute(statement):
+            owner = statement.compile(dialect=mysql.dialect()).params['user_id_1']
+            self.assertIn(owner, [101, 102])
+            self.owners.append(owner)
+            result = MagicMock()
+            result.mappings.return_value.all.return_value = []
+            return result
+        session.execute.side_effect = execute
+        @contextmanager
+        def read_unit(**options):
+            self.assertTrue(options['read_only'])
+            yield session
+        tracker = patch('tracker_data.operation_session', side_effect=read_unit)
+        tracker.start(); self.addCleanup(tracker.stop)
 
     def tearDown(self):
         self.network.assert_not_called()

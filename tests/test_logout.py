@@ -155,7 +155,7 @@ class LogoutTests(unittest.TestCase):
             session["_remember_seconds"] = 3600
         response = self.client.post("/logout", data={"csrf_token": header.fields["csrf_token"]["value"]})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(urlsplit(response.location).path, "/login")
+        self.assertEqual(urlsplit(response.location).path, "/")
         with self.client.session_transaction() as session:
             for key in ("_user_id", "_fresh", "_id", "user_id", "_remember", "_remember_seconds", "_csrf_token"):
                 self.assertNotIn(key, session)

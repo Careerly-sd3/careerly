@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 from db import DatabaseError, init_app
 
@@ -37,6 +38,25 @@ secret_key = os.environ.get("SECRET_KEY")
 if not secret_key or not secret_key.strip():
     raise RuntimeError("SECRET_KEY must be configured before starting Careerly.")
 app.config["SECRET_KEY"] = secret_key
+
+# IMPORTANT: "SECURE_COOKIES" is for later (HTTPS deployment, car-77)
+# what this does:
+# 1) _HTTPONLY >> prevent js from reading cookie data, for XSS bugs
+# 2) _SAMESITE >> cookie only shared for same site requests
+# 3) _SECURE >> only send cookie over HTTPS (127.0.0.1 is considered safe on most broswers)
+# 4) REMEMBER_COOKIE_* >> makes the created cookier safer
+# 5) _LIFETIME >> dictates max session length (we can change it based on what you guys think)
+secure_cookies = os.environ.get("SECURE_COOKIES") == "0"   # ignore this line for now
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=secure_cookies,
+    REMEMBER_COOKIE_HTTPONLY=True,
+    REMEMBER_COOKIE_SAMESITE="Lax",
+    REMEMBER_COOKIE_SECURE=secure_cookies,
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+)
+
 init_csrf(app)
 
 login_manager = LoginManager(app)
@@ -354,7 +374,7 @@ def login():
 
     return render_template("login.html", errors={}, form={})
 
-
+# also had to alter one test file to match this (test_logout.py)
 @app.route("/logout", methods=["POST"])
 @csrf_protect
 def logout():
@@ -365,4 +385,16 @@ def logout():
     # Do not session.clear() after setting it, which would lose that operation.
     session["_remember"] = "clear"
     clear_csrf_token()
-    return redirect(url_for("login"))
+    flash("You have been logged out.", "success") # logout message added (car-37)
+    return redirect(url_for("index")) # changed url
+
+# essentially what this does is;
+# 1. checks if a user is logged in (doest access db incase its down)
+# 2. tells the server "don't store cache for this page!"
+# its so that after you log out, hitting the back button doesn't show you the logged in page again
+# additonal info: gets called everytime a view is requested | the "!= static" is so it doesnt mess with css, js, etc. | displays message from line 44
+@app.after_request
+def no_store_for_logged_in_pages(response):
+    if request.endpoint != "static" and session.get("_user_id"):
+        response.headers["Cache-Control"] = "no-store"
+    return response

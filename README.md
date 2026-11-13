@@ -59,3 +59,9 @@ owner-scoped service. Interview editing, outcomes and confirmed deletion use the
 same ownership and CSRF protections. User-reported browser checks and remaining verification limits are recorded below. See
 [interview flow and manual checks](docs/interviews/add-interview.md).
 Do not rerun migration 001 or create tables on application startup.
+
+## Protected page logic
+
+Pages that show user data are @login_required
+Public pages are >>> welcome, login & register (shown to visitors)
+Cookie settings have been configured in `app.py`

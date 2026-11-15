@@ -363,12 +363,6 @@ def register():
     return render_template("register.html", errors={}, form={})
 
 
-# dummy endpoints
-@app.route("/browse")
-def browse():
-    return render_template("browse.html")
-
-
 @app.route("/interviews")
 @login_required
 def interviews():

@@ -1,0 +1,311 @@
+{% extends "template.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}" />
+{% endblock %}
+
+{% macro date_fmt(value) -%}
+{%- if value is none or value == '' -%}—
+{%- elif value is string -%}{{ value }}
+{%- else -%}{{ value.strftime('%b %d, %Y') }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro hbar(label, count, max_count, color) %}
+{% set pct = ((count / max_count) * 100)|round(1) if max_count > 0 else 0 %}
+<li class="mb-2">
+    <div class="d-flex justify-content-between fs-xs mb-1">
+        {{ label }}
+        <span class="fw-semibold">{{ count }}</span>
+    </div>
+    <div class="progress">
+        <div class="progress-bar progress-bar-striped bg-{{ color }}" style="width:{{ pct }}%"></div>
+    </div>
+</li>
+{% endmacro %}
+
+{# Empty / zero state #}
+{% macro empty_state(icon) %}
+<div class="text-center py-4 fg-3 opacity-50">
+    <i class="bi {{ icon }} fs-3xl d-block mb-1" aria-hidden="true"></i>
+    <p class="mb-0 fs-sm">No data yet</p>
+</div>
+{% endmacro %}
+
+{% block main %}
+
+{% set status_themes = {
+'Saved': 'inverse',
+'Applied': 'info',
+'Interview': 'warning',
+'Offer': 'success',
+'Rejected': 'danger',
+'Withdrawn': 'inverse',
+} %}
+
+{% set outcome_colors = {
+'Passed': 'success',
+'Failed': 'danger',
+'Pending': 'warning',
+} %}
+
+{% set outcome_colors_real = {
+'Passed': '#00b15a',
+'Failed': '#e62845',
+'Pending': '#ffc900',
+} %}
+
+{% set type_palette = ['#0dcaf0', '#6f42c1', '#fd7e14', '#20c997'] %}
+
+<section class="d-grid gap-6" data-bs-theme="light">
+    <div class="d-flex align-items-center justify-content-between gap-2" data-bs-theme="dark">
+        <h2 class="fw-bold mb-0">Dashboard</h2>
+        <small class="fg-1">Your job-search at a glance</small>
+    </div>
+
+    {% set cards = [
+    ('info', 'APPLICATIONS', total_applications, 'total tracked'),
+    ('warning', 'INTERVIEWS', total_interviews, 'scheduled'),
+    ('success', 'OFFERS', offers, offer_rate ~ '% offer rate'),
+    ('secondary', 'RESPONSE RATE', response_rate.rate ~ '%', response_rate.responded ~ ' of ' ~ response_rate.total ~ '
+    replied')
+    ] %}
+
+    <div class="d-grid grid-cols-2 md:grid-cols-4 gap-6">
+        {% for color, title, count, label in cards %}
+        <div class="card card-body border-subtle-{{ color }} bg-subtle-{{ color }} fg-emphasis-{{ color }}">
+            <span class="fs-xs fw-semibold opacity-75">{{ title }}</span>
+            <h2 class="fw-bold">{{ count }}</h2>
+            <span class="fs-xs opacity-75">{{ label }}</span>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="card card-body fg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-bar-chart-fill"></i>
+                STATUS BREADOWN
+            </span>
+            {% set max_s = status_data | map(attribute='count') | max if status_data else 1 %}
+            {% if total_applications > 0 %}
+            <ul class="list-unstyled mb-0">
+                {% for item in status_data %}
+                {{ hbar(item.status, item.count, max_s, status_themes[item.status]) }}
+                {% endfor %}
+            </ul>
+            {% else %}
+            {{ empty_state('bi-bar-chart') }}
+            {% endif %}
+        </div>
+        <div class="card card-body fg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-pie-chart-fill"></i>
+                INTERVIEW OUTCOMES
+            </span>
+            {% if total_interviews > 0 %}
+            {% set circumference = 251.2 %}
+            <div class="d-flex align-items-center gap-4">
+                <svg class="donut-svg p-4" viewBox="0 0 100 100">
+                    {% set ns = namespace(offset=0) %}
+                    {% for item in interview_outcomes %}
+                    {% if item.count > 0 %}
+                    {% set dash = ((item.count / total_interviews) * circumference)|round(2) %}
+                    <circle class="donut-segment" cx="50" cy="50" r="40"
+                        stroke="{{ outcome_colors_real[item.outcome] }}"
+                        stroke-dasharray="{{ dash }} {{ circumference - dash }}" stroke-dashoffset="{{ -ns.offset }}" />
+                    {% set ns.offset = ns.offset + dash %}
+                    {% endif %}
+                    {% endfor %}
+                </svg>
+                <ul class="list-unstyled mb-0 d-grid gap-1">
+                    {% for item in interview_outcomes %}
+                    <li class="d-flex align-items-center gap-2 fs-sm">
+                        <span class="p-2 rounded-circle bg-{{ outcome_colors[item.outcome] }}"></span>
+                        {{ item.outcome }}
+                        <strong>{{ item.count }}</strong>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% else %}
+            {{ empty_state('bi-pie-chart') }}
+            {% endif %}
+        </div>
+        <div class="card card-body fg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-briefcase-fill"></i>
+                WORK TYPE
+            </span>
+            {% set max_wt = work_type_breakdown | map(attribute='cnt') | max if work_type_breakdown else 1 %}
+            {% if work_type_breakdown %}
+            <ul class="list-unstyled mb-0">
+                {% for item in work_type_breakdown %}
+                {{ hbar(item.work_type, item.cnt, max_wt, 'primary') }}
+                {% endfor %}
+            </ul>
+            {% else %}
+            {{ empty_state('bi-briefcase') }}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card card-body">
+        <span class="fs-xs fw-semibold fg-3">
+            <i class="bi bi-graph-up"></i>
+            APPLICATIONS PER WEEK
+            <span class="fw-normal">(last 12 weeks)</span>
+        </span>
+        {% if apps_per_week %}
+        {% set n = apps_per_week|length %}
+        {% set max_cnt = apps_per_week | map(attribute='cnt') | max %}
+        {% set max_val = max_cnt if max_cnt > 0 else 1 %}
+        {% set ns = namespace(pts=[], coords=[]) %}
+        {% for w in apps_per_week %}
+        {% set x = (500 if n == 1 else (40 + loop.index0 * (920 / (n - 1))))|round(1) %}
+        {% set y = (115 - ((w.cnt / max_val) * 85))|round(1) %}
+        {% set ns.pts = ns.pts + [x ~ ',' ~ y] %}
+        {% set ns.coords = ns.coords + [{'x': x, 'y': y, 'cnt': w.cnt, 'date': w.week_start}] %}
+        {% endfor %}
+        {% set line_pts = ('40,' ~ ns.coords[0].y ~ ' 960,' ~ ns.coords[0].y) if n == 1 else (ns.pts | join(' ')) %}
+        {% set area_pts = ('40,115 40,' ~ ns.coords[0].y ~ ' 960,' ~ ns.coords[0].y ~ ' 960,115') if n == 1 else
+        ('40,115 ' ~ line_pts ~ ' 960,115') %}
+        <div class="overflow-x-auto">
+            <svg viewBox="0 0 1000 155">
+                <defs>
+                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#0dcaf0" stop-opacity="0.3" />
+                        <stop offset="100%" stop-color="#0dcaf0" stop-opacity="0.0" />
+                    </linearGradient>
+                </defs>
+                <line x1="30" y1="115" x2="970" y2="115" stroke="black" stroke-opacity="0.2" stroke-dasharray="4 4" />
+                <polygon points="{{ area_pts }}" fill="url(#chartGradient)" />
+                <polyline points="{{ line_pts }}" fill="none" stroke="#0dcaf0" stroke-width="3" />
+                {% for pt in ns.coords %}
+                <g>
+                    <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="4.5" fill="#0dcaf0" stroke="#fff" stroke-width="2"
+                        class="sparkline-point" />
+                    <text x="{{ pt.x }}" y="{{ pt.y - 9 }}" text-anchor="middle" font-size="12" font-weight="600"
+                        fill="black">{{ pt.cnt }}</text>
+                    <text x="{{ pt.x }}" y="140" text-anchor="middle" font-size="11" fill="black" opacity="0.5">
+                        {% if pt.date is string %}
+                        {{ pt.date[:10] }}
+                        {% else %}
+                        {{ pt.date.strftime('%b %d') }}
+                        {% endif %}
+                    </text>
+                </g>
+                {% endfor %}
+            </svg>
+        </div>
+        {% else %}
+        {{ empty_state('bi-graph-up') }}
+        {% endif %}
+    </div>
+
+    <div class="d-grid grid-cols-2 gap-6">
+        <div class="card card-body fg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-camera-video-fill"></i>
+                INTERVIEW TYPES
+            </span>
+            {% set max_it = interview_types | map(attribute='cnt') | max if interview_types else 1 %}
+            {% if interview_types %}
+            <ul class="list-unstyled mb-0">
+                {% for item in interview_types %}
+                {{ hbar(item.interview_type|capitalize, item.cnt, max_it, 'primary') }}
+                {% endfor %}
+            </ul>
+            {% else %}
+            {{ empty_state('bi-camera-video') }}
+            {% endif %}
+        </div>
+
+        <div class="card card-body fg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-building-fill"></i>
+                TOP COMPANIES
+            </span>
+            {% set max_c = top_companies | map(attribute='cnt') | max if top_companies else 1 %}
+            {% if top_companies %}
+            <ul class="list-unstyled mb-0">
+                {% for item in top_companies %}
+                {{ hbar(item.company, item.cnt, max_c, 'primary') }}
+                {% endfor %}
+            </ul>
+            {% else %}
+            {{ empty_state('bi-building') }}
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="d-grid grid-cols-3 gap-6">
+        <div class="card card-body fg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-calendar-event-fill"></i>
+                UPCOMING INTERVIEWS
+            </span>
+            {% if upcoming_interviews %}
+            <ul class="list-group list-group-flush">
+                {% for iv in upcoming_interviews %}
+                <li class="list-group-item px-2 d-flex justify-content-between">
+                    <div>
+                        <small class="d-block fw-semibold">{{ iv.job_title }}</small>
+                        <span class="fg-3 fs-xs">{{ iv.company }} · {{ iv.interview_type|capitalize }}</span>
+                    </div>
+                    <span class="text-end fg-3 fs-xs">
+                        {{ iv.scheduled_at.strftime('%b %d') }}
+                        <br>
+                        {{ iv.scheduled_at.strftime('%H:%M') }}
+                    </span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            {{ empty_state('bi-calendar-x') }}
+            {% endif %}
+        </div>
+        <div class="g-col-2 card card-body bg-body">
+            <span class="fs-xs fw-semibold fg-3">
+                <i class="bi bi-clock-history"></i>
+                RECENT APPLICATIONS
+            </span>
+            {% if recent_applications %}
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th class="fs-xs fg-3">COMPANY</th>
+                            <th class="fs-xs fg-3">ROLE</th>
+                            <th class="fs-xs fg-3">STATUS</th>
+                            <th class="fs-xs fg-3">APPLIED</th>
+                            <th class="fs-xs fg-3">ADDED</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for app in recent_applications %}
+                        <tr>
+                            <td class="fs-sm">{{ app.company }}</td>
+                            <td class="fs-sm">{{ app.job_title }}</td>
+                            <td>
+                                <span class="badge badge-subtle theme-{{ status_themes[app.status] }}">
+                                    {{ app.status }}
+                                </span>
+                            </td>
+                            <td class="fs-sm">{{ date_fmt(app.applied_at) }}</td>
+                            <td class="fs-sm">{{ date_fmt(app.created_at) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body">
+                {{ empty_state('bi-inbox') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

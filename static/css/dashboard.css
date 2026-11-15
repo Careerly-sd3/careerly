@@ -1,0 +1,16 @@
+.sparkline-point {
+    transition: 0.2s;
+}
+
+.sparkline-point:hover {
+    r: 6.5;
+}
+
+.donut-svg {
+    transform: rotate(-90deg);
+}
+
+.donut-segment {
+    fill: none;
+    stroke-width: 20;
+}

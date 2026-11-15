@@ -8,7 +8,7 @@ from flask import Flask, abort, flash, g, jsonify, redirect, render_template, re
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
 
 from services.csrf import clear_csrf_token, csrf_protect, init_app as init_csrf
-from services import application_service, interview_service
+from services import application_service, interview_service, dashboard_service
 from services.interview_time import parse_dublin_datetime, utc_to_dublin
 
 from services.auth_service import (
@@ -113,6 +113,33 @@ def safe_next_url(target):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    status_code = 200
+    try:
+        data = dashboard_service.load_dashboard(current_user_id())
+    except DatabaseError as error:
+        flash(str(error), "danger")
+        data = {
+            "total_applications": 0,
+            "total_interviews": 0,
+            "offers": 0,
+            "offer_rate": 0,
+            "status_data": [],
+            "apps_per_week": [],
+            "interview_outcomes": [],
+            "interview_types": [],
+            "top_companies": [],
+            "response_rate": {"responded": 0, "total": 0, "rate": 0},
+            "upcoming_interviews": [],
+            "recent_applications": [],
+            "work_type_breakdown": [],
+        }
+        status_code = 503
+    return render_template("dashboard.html", **data), status_code
 
 
 @app.route("/tracker")

@@ -46,7 +46,7 @@ app.config["SECRET_KEY"] = secret_key
 # 3) _SECURE >> only send cookie over HTTPS (127.0.0.1 is considered safe on most broswers)
 # 4) REMEMBER_COOKIE_* >> makes the created cookier safer
 # 5) _LIFETIME >> dictates max session length (we can change it based on what you guys think)
-secure_cookies = os.environ.get("SECURE_COOKIES") == "0"   # ignore this line for now
+secure_cookies = os.environ.get("SECURE_COOKIES") == "0"   # change to "1" if the connection is blocked
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",

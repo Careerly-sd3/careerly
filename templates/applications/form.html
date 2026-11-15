@@ -1,0 +1,109 @@
+{% extends "template.html" %}
+{#
+CAR-55 shared create and edit form for a job application (CAR-54).
+Context for routes:
+  mode: create (default) or edit
+  application: edit only; trusted, owner-scoped company/job_title display context
+  form: strings keyed by company, job_title, opportunity_type, work_type, status,
+        location, job_url, closing_date, applied_at, salary_text, job_ad_text
+        (dates as YYYY-MM-DD); POST values take precedence over prefill
+  errors: field -> message, optionally _form for a failed save
+  statuses / opportunity_types / work_types: the allowed values, from application_service
+  action_url / cancel_url: trusted URLs built by the route, not posted values
+  csrf_token: the services/csrf.py callable token provider
+Routes must still verify CSRF and ownership; the service validates every value.
+Save stays disabled until a trusted action URL and token are supplied.
+#}
+{% set editing = mode|default('create') == 'edit' %}
+{% set form = form|default({}, true) %}
+{% set errors = errors|default({}, true) %}
+{% set token = csrf_token() if csrf_token is defined and csrf_token is callable else csrf_token|default('', true) %}
+{% set target = action_url|default('', true) %}
+
+{% block title %}{{ 'Edit application' if editing else 'Add application' }}{% endblock %}
+
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+{% endblock %}
+
+{% macro error_message(name) -%}
+{% if errors.get(name) %}
+<p id="application-{{ name }}-error" class="auth-error">{{ errors[name] }}</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro error_attributes(name, help_id='') -%}
+{% if errors.get(name) %}aria-invalid="true"{% endif %}
+{% if errors.get(name) or help_id %}aria-describedby="{{ help_id }}{% if help_id and errors.get(name) %} {% endif %}{% if errors.get(name) %}application-{{ name }}-error{% endif %}"{% endif %}
+{%- endmacro %}
+
+{% macro text_field(name, label, type='text', required=False, maxlength=None, placeholder='', help_id='') -%}
+<div class="auth-field">
+    <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span></label>
+    <input id="application-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ form.get(name) or '' }}"
+        {% if maxlength %}maxlength="{{ maxlength }}"{% endif %}{% if placeholder %} placeholder="{{ placeholder }}"{% endif %}{% if required %} required{% endif %}
+        {{ error_attributes(name, help_id) }}>
+    {{ error_message(name) }}
+</div>
+{%- endmacro %}
+
+{# A saved value outside the allowed list (an older or hand-edited row) is shown, disabled, so it is never silently replaced #}
+{% macro select_field(name, label, values, selected, required=False, empty_label='') -%}
+<div class="auth-field">
+    <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span></label>
+    <select id="application-{{ name }}" name="{{ name }}"{% if required %} required{% endif %} {{ error_attributes(name) }}>
+        {% if selected and selected not in values %}
+        <option value="{{ selected }}" selected disabled>Unsupported selection: {{ selected }}</option>
+        {% elif required and not selected %}
+        <option value="" selected disabled>Choose an option</option>
+        {% elif not required %}
+        <option value=""{% if not selected %} selected{% endif %}>{{ empty_label }}</option>
+        {% endif %}
+        {% for value in values %}
+        <option value="{{ value }}"{% if selected == value %} selected{% endif %}>{{ value|capitalize }}</option>
+        {% endfor %}
+    </select>
+    {{ error_message(name) }}
+</div>
+{%- endmacro %}
+
+{% block main %}
+<section class="auth-card m-auto">
+    <h1 class="fs-lg">{{ 'Edit application' if editing else 'Add application' }}</h1>
+    {% if editing and application is defined and application %}
+    <p class="auth-intro">{{ application.job_title }} &middot; {{ application.company }}</p>
+    {% endif %}
+
+    {% if errors and not (errors|length == 1 and '_form' in errors) %}
+    <div class="alert theme-danger" role="alert">Please correct the highlighted fields.</div>
+    {% endif %}
+    {{ error_message('_form') }}
+
+    <form id="application-form" method="post"{% if target %} action="{{ target }}"{% endif %} class="d-flex flex-column gap-5">
+        {% if token %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endif %}
+
+        {{ text_field('company', 'Company', required=True, maxlength=150) }}
+        {{ text_field('job_title', 'Job title', required=True, maxlength=150) }}
+        {{ select_field('opportunity_type', 'Opportunity type', opportunity_types, form.get('opportunity_type'), required=True) }}
+        {{ select_field('work_type', 'Work type', work_types, form.get('work_type'), empty_label='Not specified') }}
+        {{ select_field('status', 'Status', statuses, form.get('status') or 'Saved', required=True) }}
+        {{ text_field('location', 'Location', maxlength=150) }}
+        {{ text_field('job_url', 'Job link', type='url', maxlength=500, placeholder='https://') }}
+        {{ text_field('closing_date', 'Closing date', type='date') }}
+        {{ text_field('applied_at', 'Applied date', type='date', help_id='application-applied_at-help') }}
+        <p id="application-applied_at-help" class="fs-sm">Leave the applied date empty while the status is Saved.</p>
+        {{ text_field('salary_text', 'Salary', maxlength=100, placeholder='e.g. 35,000 - 40,000, or competitive') }}
+
+        <div class="auth-field">
+            <label for="application-job_ad_text">Job advert <span class="fs-sm">(optional)</span></label>
+            <textarea id="application-job_ad_text" name="job_ad_text" rows="8" {{ error_attributes('job_ad_text') }}>{{ form.get('job_ad_text') or '' }}</textarea>
+            {{ error_message('job_ad_text') }}
+        </div>
+
+        <div class="d-flex flex-wrap gap-3 align-items-center">
+            <button type="submit" class="btn-solid theme-inverse"{% if not target or not token %} disabled{% endif %}>Save</button>
+            <a id="application-cancel" class="btn-outline theme-inverse" href="{{ cancel_url|default(url_for('tracker'), true) }}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

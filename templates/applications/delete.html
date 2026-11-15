@@ -1,0 +1,19 @@
+{% extends "template.html" %}
+{% block title %}Delete application{% endblock %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+{% endblock %}
+{% block main %}
+<section class="auth-card m-auto">
+    <h1>Delete application?</h1>
+    <p>{{ application.job_title }} &middot; {{ application.company }}</p>
+    <p>{{ application.status }}</p>
+    <p>This permanently removes the application and its notes{% if application.interview_count %}, and its {{ application.interview_count }} interview{{ '' if application.interview_count == 1 else 's' }}{% endif %}. This cannot be undone.</p>
+    {% if error %}<p class="auth-error" role="alert">{{ error }}</p>{% endif %}
+    <form id="delete-application-form" method="post" action="{{ url_for('delete_application', application_id=application.application_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn-solid theme-danger">Confirm delete</button>
+        <a class="btn-outline theme-inverse" href="{{ url_for('tracker') }}">Cancel</a>
+    </form>
+</section>
+{% endblock %}

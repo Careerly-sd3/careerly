@@ -189,6 +189,113 @@ def save_application_notes(application_id):
     return jsonify(notes=saved["notes"] or "",
                    updated_text=utc_to_dublin(saved["updated_at"]).strftime(DISPLAY_DATE))
 
+# ---- CAR-54: add, edit and delete an application ----
+# The only form fields the routes accept. The owner always comes from the
+# logged-in user, and ids only from the address, never from the form.
+APPLICATION_FIELDS = (
+    "company", "job_title", "opportunity_type", "work_type", "status", "location",
+    "job_url", "closing_date", "applied_at", "salary_text", "job_ad_text",
+)
+
+
+def application_form_values():
+    return {name: request.form.get(name, "") for name in APPLICATION_FIELDS}
+
+
+def application_prefill(application):
+    """Form strings for a saved application: dates as YYYY-MM-DD, NULL as empty."""
+    form = {}
+    for name in APPLICATION_FIELDS:
+        value = application.get(name)
+        form[name] = value.isoformat() if hasattr(value, "isoformat") else (value or "")
+    return form
+
+
+def render_application_form(*, mode, form, action_url, application=None, errors=None, status=200):
+    return render_template(
+        "applications/form.html", mode=mode, form=form, errors=errors or {},
+        application=application, action_url=action_url, cancel_url=url_for("tracker"),
+        statuses=application_service.STATUSES,
+        opportunity_types=application_service.OPPORTUNITY_TYPES,
+        work_types=application_service.WORK_TYPES,
+    ), status
+
+
+def owned_application_or_404(application_id):
+    try:
+        return application_service.get_application(current_user_id(), application_id)
+    except (application_service.ApplicationNotFound, application_service.ApplicationValidationError):
+        abort(404)  # absent, foreign-owned and out-of-range ids all look the same
+
+
+@app.route("/applications/new", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def add_application():
+    action_url = url_for("add_application")
+    if request.method == "POST":
+        form = application_form_values()
+        try:
+            application_service.create_application(current_user_id(), **form)
+        except application_service.ApplicationValidationError as error:
+            return render_application_form(mode="create", form=form, action_url=action_url,
+                                           errors=error.errors, status=400)
+        except DatabaseError:
+            return render_application_form(
+                mode="create", form=form, action_url=action_url, status=503,
+                errors={"_form": "Could not save the application. Check your tracker before retrying."})
+        flash("Application added.", "success")
+        return redirect(url_for("tracker"))
+    return render_application_form(mode="create", action_url=action_url,
+                                   form={"status": application_service.DEFAULT_STATUS})
+
+
+@app.route("/applications/<int:application_id>/edit", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def edit_application(application_id):
+    application = owned_application_or_404(application_id)
+    action_url = url_for("edit_application", application_id=application_id)
+    if request.method == "POST":
+        form = application_form_values()
+        try:
+            application_service.update_application(current_user_id(), application_id, **form)
+        except application_service.ApplicationNotFound:
+            abort(404)  # it disappeared after the preflight read
+        except application_service.ApplicationValidationError as error:
+            return render_application_form(mode="edit", form=form, action_url=action_url,
+                                           application=application, errors=error.errors, status=400)
+        except DatabaseError:
+            return render_application_form(
+                mode="edit", form=form, action_url=action_url, application=application, status=503,
+                errors={"_form": "Could not save the application. Check your tracker before retrying."})
+        flash("Application updated.", "success")
+        return redirect(url_for("tracker"))
+    return render_application_form(mode="edit", form=application_prefill(application),
+                                   action_url=action_url, application=application)
+
+
+@app.route("/applications/<int:application_id>/delete", methods=["GET", "POST"])
+@login_required
+@csrf_protect
+def delete_application(application_id):
+    application = owned_application_or_404(application_id)
+    error = None
+    if request.method == "POST":
+        try:
+            result = application_service.delete_application(current_user_id(), application_id)
+        except application_service.ApplicationNotFound:
+            abort(404)
+        except DatabaseError:
+            error = "Could not delete the application. Check your tracker before retrying."
+        else:
+            count = result["interviews_deleted"]
+            flash("Application deleted." if not count else
+                  f"Application deleted, along with {count} interview{'' if count == 1 else 's'}.",
+                  "success")
+            return redirect(url_for("tracker"))
+    return render_template("applications/delete.html", application=application,
+                           error=error), 503 if error else 200
 
 def interview_form_values():
     """Whitelist editable fields; ownership/association never come from the form."""

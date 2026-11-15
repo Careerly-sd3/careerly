@@ -1,16 +1,20 @@
 """Header identity/logout regressions: synthetic persisted rows, no hosting."""
-from html.parser import HTMLParser
+
 import importlib
 import os
+import re
 import unittest
-from unittest.mock import patch, MagicMock
 from contextlib import contextmanager
-from sqlalchemy.dialects import mysql
+from html.parser import HTMLParser
+from unittest.mock import MagicMock, patch
 from urllib.parse import parse_qs, urlsplit
 
-from flask_login.utils import encode_cookie
-
 from auth_fixtures import AuthDatabaseFixture
+from flask_login.utils import encode_cookie
+from sqlalchemy.dialects import mysql
+
+# public routes, so that every other route sends visitors >> /login
+PUBLIC_ENDPOINTS = {"static", "index", "login", "register", "logout", "browse"}
 
 
 class HeaderHTML(HTMLParser):
@@ -52,51 +56,79 @@ class HeaderHTML(HTMLParser):
 
 class LogoutTests(unittest.TestCase):
     def setUp(self):
-        environment = patch.dict(os.environ, {"SECRET_KEY": "unit-test-only-session-key"}, clear=True)
+        environment = patch.dict(
+            os.environ, {"SECRET_KEY": "unit-test-only-session-key"}, clear=True
+        )
         environment.start()
         self.addCleanup(environment.stop)
         dotenv = patch("dotenv.load_dotenv", return_value=False)
         dotenv.start()
         self.addCleanup(dotenv.stop)
-        network = patch("mysql.connector.connect", side_effect=AssertionError("No hosting in logout tests"))
+        network = patch(
+            "mysql.connector.connect",
+            side_effect=AssertionError("No hosting in logout tests"),
+        )
         self.network = network.start()
         self.addCleanup(network.stop)
         self.module = importlib.import_module("app")
-        config = patch.dict(self.module.app.config, TESTING=True, SECRET_KEY="unit-test-only-session-key",
-                            REMEMBER_COOKIE_NAME="synthetic_remember")
+        config = patch.dict(
+            self.module.app.config,
+            TESTING=True,
+            SECRET_KEY="unit-test-only-session-key",
+            REMEMBER_COOKIE_NAME="synthetic_remember",
+        )
         config.start()
         self.addCleanup(config.stop)
         self.client = self.module.app.test_client()
         self.database = AuthDatabaseFixture()
-        provider = patch("services.auth_service.operation_session", side_effect=self.database.auth_operation)
+        provider = patch(
+            "services.auth_service.operation_session",
+            side_effect=self.database.auth_operation,
+        )
         provider.start()
         self.addCleanup(provider.stop)
         self.forms = [
-            {"name": 'Alina <script>alert("synthetic")</script>', "email": "alina@example.invalid",
-             "password": "synthetic-test-password", "confirm_password": "synthetic-test-password"},
-            {"name": "Second Synthetic User", "email": "second@example.invalid",
-             "password": "synthetic-test-password", "confirm_password": "synthetic-test-password"},
+            {
+                "name": 'Alina <script>alert("synthetic")</script>',
+                "email": "alina@example.invalid",
+                "password": "synthetic-test-password",
+                "confirm_password": "synthetic-test-password",
+            },
+            {
+                "name": "Second Synthetic User",
+                "email": "second@example.invalid",
+                "password": "synthetic-test-password",
+                "confirm_password": "synthetic-test-password",
+            },
         ]
         for form in self.forms:
             self.assertEqual(self.client.post("/register", data=form).status_code, 302)
-        self.identities = [self.module.get_user_by_id(identity).user_id for identity in sorted(self.database.rows)]
+        self.identities = [
+            self.module.get_user_by_id(identity).user_id
+            for identity in sorted(self.database.rows)
+        ]
         self.assertEqual(self.identities, [101, 102])
         self.owners = []
         session = MagicMock()
+
         def execute(statement):
-            owner = statement.compile(dialect=mysql.dialect()).params['user_id_1']
+            owner = statement.compile(dialect=mysql.dialect()).params["user_id_1"]
             self.assertIn(owner, [101, 102])
             self.owners.append(owner)
             result = MagicMock()
             result.mappings.return_value.all.return_value = []
             return result
+
         session.execute.side_effect = execute
+
         @contextmanager
         def read_unit(**options):
-            self.assertTrue(options['read_only'])
+            self.assertTrue(options["read_only"])
             yield session
-        tracker = patch('tracker_data.operation_session', side_effect=read_unit)
-        tracker.start(); self.addCleanup(tracker.stop)
+
+        tracker = patch("tracker_data.operation_session", side_effect=read_unit)
+        tracker.start()
+        self.addCleanup(tracker.stop)
 
     def tearDown(self):
         self.network.assert_not_called()
@@ -153,11 +185,21 @@ class LogoutTests(unittest.TestCase):
             session["user_id"] = 102
             session["_remember"] = "set"
             session["_remember_seconds"] = 3600
-        response = self.client.post("/logout", data={"csrf_token": header.fields["csrf_token"]["value"]})
+        response = self.client.post(
+            "/logout", data={"csrf_token": header.fields["csrf_token"]["value"]}
+        )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(urlsplit(response.location).path, "/")
         with self.client.session_transaction() as session:
-            for key in ("_user_id", "_fresh", "_id", "user_id", "_remember", "_remember_seconds", "_csrf_token"):
+            for key in (
+                "_user_id",
+                "_fresh",
+                "_id",
+                "user_id",
+                "_remember",
+                "_remember_seconds",
+                "_csrf_token",
+            ):
                 self.assertNotIn(key, session)
         self.assert_login_required()
 
@@ -165,14 +207,18 @@ class LogoutTests(unittest.TestCase):
         self.login(0)
         _, first = self.header()
         token = first.fields["csrf_token"]["value"]
-        self.assertEqual(self.client.post("/logout", data={"csrf_token": token}).status_code, 302)
+        self.assertEqual(
+            self.client.post("/logout", data={"csrf_token": token}).status_code, 302
+        )
         self.login(1)
         self.owners.clear()
         _, second = self.header()
         self.assertEqual(second.account_name.strip(), self.forms[1]["name"])
         self.assertEqual(self.owners, [102, 102])
         self.assertNotEqual(second.fields["csrf_token"]["value"], token)
-        self.assertEqual(self.client.post("/logout", data={"csrf_token": token}).status_code, 400)
+        self.assertEqual(
+            self.client.post("/logout", data={"csrf_token": token}).status_code, 400
+        )
         self.assertEqual(self.header()[1].account_name.strip(), self.forms[1]["name"])
 
     def test_missing_invalid_and_non_ascii_csrf_do_not_log_out(self):
@@ -180,8 +226,12 @@ class LogoutTests(unittest.TestCase):
         self.header()
         for data in ({}, {"csrf_token": "invalid"}, {"csrf_token": "\u00e9"}):
             with self.subTest(data=data):
-                self.assertEqual(self.client.post("/logout", data=data).status_code, 400)
-                self.assertEqual(self.header()[1].account_name.strip(), self.forms[0]["name"])
+                self.assertEqual(
+                    self.client.post("/logout", data=data).status_code, 400
+                )
+                self.assertEqual(
+                    self.header()[1].account_name.strip(), self.forms[0]["name"]
+                )
 
     def test_another_sessions_csrf_is_rejected(self):
         self.login(0)
@@ -189,9 +239,13 @@ class LogoutTests(unittest.TestCase):
         self.login(1, other)
         _, first = self.header()
         self.header(other)
-        response = other.post("/logout", data={"csrf_token": first.fields["csrf_token"]["value"]})
+        response = other.post(
+            "/logout", data={"csrf_token": first.fields["csrf_token"]["value"]}
+        )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(self.header(other)[1].account_name.strip(), self.forms[1]["name"])
+        self.assertEqual(
+            self.header(other)[1].account_name.strip(), self.forms[1]["name"]
+        )
 
     def test_get_logout_does_not_change_authentication(self):
         self.login()
@@ -203,7 +257,12 @@ class LogoutTests(unittest.TestCase):
         self.client.set_cookie("synthetic_remember", cookie)
         _, header = self.header()  # Flask-Login restores this synthetic persisted user.
         self.assertEqual(header.account_name.strip(), self.forms[0]["name"])
-        self.assertEqual(self.client.post("/logout", data={"csrf_token": header.fields["csrf_token"]["value"]}).status_code, 302)
+        self.assertEqual(
+            self.client.post(
+                "/logout", data={"csrf_token": header.fields["csrf_token"]["value"]}
+            ).status_code,
+            302,
+        )
         self.assertIsNone(self.client.get_cookie("synthetic_remember"))
         self.assert_login_required()
 
@@ -215,6 +274,59 @@ class LogoutTests(unittest.TestCase):
         _, header = self.header()
         self.assertEqual(header.account_name.strip(), self.forms[0]["name"])
         self.assertEqual(self.owners, [101, 101])
+
+    # added a couple of extra tests to cover everything added for CAR-37
+    # check for protected routes (visitors go to /login)
+    def private_routes(self):
+        for rule in self.module.app.url_map.iter_rules():
+            if rule.endpoint in PUBLIC_ENDPOINTS:
+                continue
+            url = re.sub(r"<[^>]+>", "1", rule.rule)   # fill <int:id> style parts with a dummy id
+            for method in sorted(rule.methods & {"GET", "POST"}):
+                yield rule.endpoint, method, url
+
+
+    def assert_all_private(self, client):
+        routes = list(self.private_routes())
+        self.assertIn("tracker", {endpoint for endpoint, _, _ in routes})  # fails if the loop checks nothing
+        for endpoint, method, url in routes:
+            with self.subTest(endpoint=endpoint, method=method, url=url):
+                response = client.open(url, method=method)
+                self.assertEqual(response.status_code, 302)
+                self.assertEqual(urlsplit(response.location).path, "/login")
+
+    def test_anonymous_visitor_cannot_open_any_private_route(self):
+        self.assert_all_private(self.module.app.test_client())
+
+    def test_nothing_private_opens_after_logout(self):
+        self.login()
+        _, header = self.header()
+        response = self.client.post("/logout", data={"csrf_token": header.fields["csrf_token"]["value"]})
+        self.assertEqual(response.status_code, 302)
+        self.assert_all_private(self.client)
+
+    def test_logout_lands_on_welcome_page_with_one_time_message(self):
+        self.login()
+        _, header = self.header()
+        response = self.client.post("/logout", data={"csrf_token": header.fields["csrf_token"]["value"]})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(urlsplit(response.location).path, "/")
+        welcome = self.client.get("/")
+        self.assertEqual(welcome.status_code, 200)
+        self.assertIn(b"You have been logged out.", welcome.data)
+        self.assertIn(b'href="/login"', welcome.data)               # navbar is back to Login / Register
+        self.assertNotIn(b'action="/logout"', welcome.data)
+        self.assertNotIn(b"You have been logged out.", self.client.get("/").data)  # shown only once
+
+    def test_logged_in_pages_are_not_cacheable_but_public_and_static_files_are_untouched(self):
+        anonymous = self.module.app.test_client()
+        self.assertNotIn("no-store", anonymous.get("/").headers.get("Cache-Control", ""))
+        self.login()
+        response, _ = self.header()
+        self.assertIn("no-store", response.headers.get("Cache-Control", ""))
+        static = self.client.get("/static/css/style.css")
+        self.assertEqual(static.status_code, 200)
+        self.assertNotIn("no-store", static.headers.get("Cache-Control", ""))
 
 
 if __name__ == "__main__":

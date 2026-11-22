@@ -128,9 +128,16 @@
     {%- endmacro %}
 
     <form method="get" action="{{ url_for('tracker') }}" class="d-flex flex-column gap-2">
-        {% if status or company or role %}
-        <div><a href="{{ url_for('tracker') }}" class="fs-sm">Clear filters</a></div>
-        {% endif %}
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <label for="application-sort">Sort by</label>
+            <select id="application-sort" name="sort" data-auto-submit>
+                <option value=""{% if not sort %} selected{% endif %}>Default order</option>
+                <option value="closing_date"{% if sort == 'closing_date' %} selected{% endif %}>Closing date</option>
+            </select>
+            {% if status or company or role %}
+            <a href="{{ url_for('tracker', sort=sort) if sort else url_for('tracker') }}" class="fs-sm">Clear filters</a>
+            {% endif %}
+        </div>
 
         {# Applications table: about 5 rows tall, then it scrolls (cards on phones) #}
         <div class="table-card applications-card mb-0" data-bs-theme="light">
@@ -156,6 +163,9 @@
                             <td data-col="next">
                                 {{ application.next_step }}
                                 {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
+                                {% if application.deadline_warning %}
+                                <div><span class="badge badge-subtle deadline-warning theme-{{ application.deadline_warning.theme }}">{{ application.deadline_warning.text }}</span></div>
+                                {% endif %}
                             </td>
                             <td data-col="actions">{{ row_actions(application) }}</td>
                         </tr>

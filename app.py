@@ -149,8 +149,9 @@ def tracker():
     status = request.args.get("status", "")
     company = request.args.get("company", "")
     role = request.args.get("role", "")
+    sort = "closing_date" if request.args.get("sort") == "closing_date" else ""
     try:
-        page = load_tracker_page(current_user_id(), status=status, company=company, role=role)
+        page = load_tracker_page(current_user_id(), status=status, company=company, role=role, sort=sort)
     except DatabaseError as error:
         flash(str(error), "danger")
         page = {"applications": [], "interviews": [], "has_more_interviews": False, "practice_meta": "",
@@ -162,6 +163,7 @@ def tracker():
         status=status,
         company=company,
         role=role,
+        sort=sort,
         practice_questions=PRACTICE_QUESTIONS,
         status_themes=STATUS_THEMES,
     ), status_code

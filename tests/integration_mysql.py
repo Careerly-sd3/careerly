@@ -4,7 +4,7 @@ Never loads .env, connects to a pre-existing server, or uses developer records.
 Requires existing mysqld and OpenSSL executables; installs nothing.
 """
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 import os
 from pathlib import Path
 import re
@@ -23,6 +23,86 @@ def run(args):
     # Never echo commands, credentials, generated keys, or raw subprocess errors.
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL, timeout=90)
+
+
+def check_deadline_routes(db_app, check):
+    from db import get_db
+
+    with (patch('dotenv.load_dotenv', return_value=False),
+          patch.dict(os.environ, SECRET_KEY='synthetic-deadline-route-key')):
+        from app import app
+
+    def snapshot():
+        with db_app.app_context():
+            cursor = get_db().cursor(dictionary=True, buffered=True)
+            try:
+                cursor.execute('SELECT * FROM JobApplication ORDER BY application_id')
+                applications = cursor.fetchall()
+                cursor.execute('SELECT * FROM Company ORDER BY company_id')
+                return applications, cursor.fetchall()
+            finally:
+                cursor.close()
+
+    # All database reads and writes use the harness's verified loopback server.
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session.update(_user_id='1', _fresh=True, _csrf_token='synthetic-deadline-token')
+    add_url = '/applications/new'
+    form = dict(csrf_token='synthetic-deadline-token', company='Deadline verification',
+                job_title='Synthetic deadline role', opportunity_type='internship',
+                status='Applied', work_type='hybrid', location='Dublin',
+                job_url='https://example.invalid/role', salary_text='Synthetic salary',
+                job_ad_text='Synthetic job advert', applied_at='2026-07-10')
+    original = snapshot()
+    response = client.post(add_url, data=form | {'closing_date': '2026-07-09'})
+    check(response.status_code == 400 and b'Closing date cannot be earlier' in response.data
+          and b'name="closing_date" type="date" value="2026-07-09"' in response.data
+          and snapshot() == original, 'deadline create rejects reversal and leaves applications and companies intact')
+
+    response = client.post(add_url, data=form | {'closing_date': '2026-07-10'})
+    applications, _ = snapshot()
+    created = next(row for row in applications if row['job_title'] == form['job_title'])
+    edit_url = f"/applications/{created['application_id']}/edit"
+    reopened = client.get(edit_url)
+    check(response.status_code == 302 and reopened.status_code == 200
+          and created['applied_at'] == created['closing_date'] == date(2026, 7, 10)
+          and b'name="closing_date" type="date" value="2026-07-10"' in reopened.data
+          and b'name="applied_at" type="date" value="2026-07-10"' in reopened.data,
+          'deadline equality persists on create and prefills the edit form')
+
+    notes_url = f"/applications/{created['application_id']}/notes"
+    response = client.post(notes_url, data=dict(csrf_token=form['csrf_token'], notes='Keep these notes'))
+    check(response.status_code == 200, 'deadline fixture saves notes through the existing route')
+    before_edit = snapshot()
+    response = client.post(edit_url, data=form | {
+        'closing_date': '2026-07-09', 'location': 'Do not save this location'})
+    check(response.status_code == 400 and b'Closing date cannot be earlier' in response.data
+          and b'name="closing_date" type="date" value="2026-07-09"' in response.data
+          and b'Do not save this location' in response.data and snapshot() == before_edit,
+          'deadline edit rejects reversal, retains form values and leaves persisted rows intact')
+
+    response = client.post(edit_url, data=form | {'closing_date': '2026-07-13'})
+    after_edit, companies = snapshot()
+    previous = next(row for row in before_edit[0] if row['application_id'] == created['application_id'])
+    edited = next(row for row in after_edit if row['application_id'] == created['application_id'])
+    reopened = client.get(edit_url)
+    check(response.status_code == 302 and reopened.status_code == 200
+          and edited == previous | {'closing_date': date(2026, 7, 13), 'updated_at': edited['updated_at']}
+          and companies == before_edit[1]
+          and b'name="closing_date" type="date" value="2026-07-13"' in reopened.data
+          and b'name="applied_at" type="date" value="2026-07-10"' in reopened.data,
+          'corrected edit persists and reopens with notes and other fields intact')
+
+    with patch('tracker_data._now_utc', return_value=datetime(2026, 7, 9, 23)):
+        default = client.get('/tracker')
+        sorted_page = client.get('/tracker?sort=closing_date')
+    marker = f'id="details-{created["application_id"]}"'.encode()
+    check(default.status_code == sorted_page.status_code == 200
+          and default.data.index(b'id="details-1"') < default.data.index(marker)
+          and sorted_page.data.index(marker) < sorted_page.data.index(b'id="details-1"')
+          and b'id="details-2"' not in sorted_page.data
+          and b'theme-warning">3 days left</span>' in sorted_page.data,
+          'real Tracker route sorts against NULL dates and renders the Dublin-local badge for the owner')
 
 
 def main():
@@ -311,6 +391,8 @@ def main():
                 stage = 'synthetic interview and Tracker ORM integration'
                 from integration_interviews import run_checks
                 run_checks(app, check, now)
+                stage = 'synthetic deadline create, edit and Tracker routes'
+                check_deadline_routes(app, check)
             print('Result: '+str(passed)+' isolated checks passed', flush=True)
         except Exception as error:
             print('FAIL: '+stage+'; '+type(error).__name__+'; errno='+str(getattr(error, 'errno', None))+'; SQLSTATE='+str(getattr(error, 'sqlstate', None))+'; details suppressed', flush=True)

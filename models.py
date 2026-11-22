@@ -61,6 +61,7 @@ class JobApplication(Base):
     created_at = Column(DATETIME(fsp=0), nullable=False)
     updated_at = Column(DATETIME(fsp=0), nullable=False)
     job_ad_text = Column(Text, nullable=True)
+    follow_up_date = Column(Date, nullable=True)
     __table_args__ = (
         CheckConstraint("CAST(`status` AS BINARY) IN (CAST('Saved' AS BINARY), CAST('Applied' AS BINARY), CAST('Interview' AS BINARY), CAST('Offer' AS BINARY), CAST('Rejected' AS BINARY), CAST('Withdrawn' AS BINARY))", name="ck_jobapplication_status"),
         ForeignKeyConstraint(["user_id"], ["User.user_id"], name="fk_jobapplication_user_id", ondelete="CASCADE"),

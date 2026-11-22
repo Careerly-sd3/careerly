@@ -51,7 +51,7 @@ def _applications_statement(user_id):
     return (select(
                 JobApplication.application_id, Company.name.label("company"),
                 JobApplication.job_title, JobApplication.status, JobApplication.applied_at,
-                JobApplication.closing_date, JobApplication.created_at, JobApplication.location,
+                JobApplication.closing_date, JobApplication.follow_up_date, JobApplication.created_at, JobApplication.location,
                 JobApplication.work_type, JobApplication.opportunity_type,
                 JobApplication.salary_text, JobApplication.job_url, JobApplication.notes,
                 JobApplication.updated_at, Company.website_url)
@@ -149,6 +149,8 @@ def _facts(application):
     facts = [{"label": label, "value": value} for label, value in values if value]
     if application.get("closing_date"):
         facts.append({"label": "Closing date", "value": application["closing_date"].strftime(DISPLAY_DATE)})
+    follow_up_date = application.get("follow_up_date")
+    facts.append({"label": "Follow-up", "value": follow_up_date.strftime(DISPLAY_DATE) if follow_up_date else "—"})
     return facts
 
 

@@ -13,11 +13,12 @@ settings. SQLAlchemy 2.1.8 and mysql-connector-python 9.7.0 remain pinned; Pytho
 3.11+ is required. There is no separate database URL or Flask-SQLAlchemy extension.
 
 The six explicit mappings describe User, UserSkill, Company, JobApplication,
-Interview and AIAnalysis: 44 columns with the existing names/case, types,
+Interview and AIAnalysis: 45 columns after migration 002, with the existing names/case, types,
 nullability, generated IDs, defaults, keys, named CHECKs and deletion rules.
 InnoDB/utf8mb4_0900_ai_ci metadata remains unchanged. Never call create_all,
 drop_all, startup reflection or schema migrations to run this application.
 No database rebuild is needed.
+Apply migration 002 before deploying code that queries `JobApplication.follow_up_date`. See the [CAR-69 deployment check](../follow-up-dates.md).
 
 One validator and verified connector factory supply both ORM and diagnostic paths.
 CA validation, certificate and hostname verification, required TLS 1.2/1.3,

@@ -22,14 +22,19 @@ import test_add_interview as route_fixture
 
 class MappingTests(unittest.TestCase):
     def test_all_columns_match_released_migration(self):
-        sql = (Path(__file__).resolve().parents[1] / 'database/migrations/001_initial_schema.sql').read_text()
+        migrations = Path(__file__).resolve().parents[1] / 'database/migrations'
+        sql = (migrations / '001_initial_schema.sql').read_text()
+        upgrade = (migrations / '002_application_follow_up_date.sql').read_text()
+        self.assertRegex(upgrade, r'^ALTER TABLE `JobApplication`\s+ADD COLUMN `follow_up_date` DATE NULL;\s*$')
         tables = re.findall(r'CREATE TABLE `(\w+)` \((.*?)\) ENGINE=', sql, re.S)
         self.assertEqual(len(tables), 6)
-        self.assertEqual(sum(len(t.columns) for t in models.Base.metadata.tables.values()), 44)
+        self.assertEqual(sum(len(t.columns) for t in models.Base.metadata.tables.values()), 45)
         self.assertEqual(set(models.Base.metadata.tables), {name for name, _ in tables})
         for name, body in tables:
             table = models.Base.metadata.tables[name]
             expected = re.findall(r'^  `(\w+)` (INT|VARCHAR\(\d+\)|TEXT|DATETIME|DATE)([^,\n]*)', body, re.M)
+            if name == 'JobApplication':
+                expected.append(('follow_up_date', 'DATE', ' NULL'))
             self.assertEqual(list(table.columns.keys()), [c[0] for c in expected])
             for column_name, kind, suffix in expected:
                 column = table.c[column_name]

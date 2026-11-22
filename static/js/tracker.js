@@ -97,6 +97,15 @@ document.querySelectorAll("[data-details-toggle]").forEach((button) => {
     });
 });
 
+function openLinkedDetails() {
+    const target = window.location.hash.slice(1);
+    if (!/^details-[1-9]\d*$/.test(target)) return;
+    document.querySelector(`[data-details-toggle][aria-controls="${target}"][aria-expanded="false"]`)?.click();
+}
+
+openLinkedDetails();
+window.addEventListener("hashchange", openLinkedDetails);
+
 // 6. Notes: "Edit notes" swaps the text for a box in place; Save posts it and shows the saved text.
 const NOTES_ERRORS = {
     400: "Your session has expired. Reload the page and try again.",

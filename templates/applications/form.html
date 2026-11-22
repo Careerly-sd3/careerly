@@ -5,7 +5,7 @@ Context for routes:
   mode: create (default) or edit
   application: edit only; trusted, owner-scoped company/job_title display context
   form: strings keyed by company, job_title, opportunity_type, work_type, status,
-        location, job_url, closing_date, applied_at, salary_text, job_ad_text
+        location, job_url, closing_date, applied_at, follow_up_date, salary_text, job_ad_text
         (dates as YYYY-MM-DD); POST values take precedence over prefill
   errors: field -> message, optionally _form for a failed save
   statuses / opportunity_types / work_types: the allowed values, from application_service
@@ -92,6 +92,7 @@ Save stays disabled until a trusted action URL and token are supplied.
         {{ text_field('closing_date', 'Closing date', type='date') }}
         {{ text_field('applied_at', 'Applied date', type='date', help_id='application-applied_at-help') }}
         <p id="application-applied_at-help" class="fs-sm">Leave the applied date empty while the status is Saved.</p>
+        {{ text_field('follow_up_date', 'Follow-up date', type='date') }}
         {{ text_field('salary_text', 'Salary', maxlength=100, placeholder='e.g. 35,000 - 40,000, or competitive') }}
 
         <div class="auth-field">

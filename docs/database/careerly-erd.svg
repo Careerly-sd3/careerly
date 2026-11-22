@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="990" height="678" viewBox="0 0 990 678" role="img" aria-labelledby="title">
+  <title id="title">Careerly relational database ERD</title>
+  <rect width="990" height="678" fill="#f7f8fa"/>
+  <g font-family="Segoe UI, sans-serif" fill="#172033">
+    <path d="M 170 265 V 191" stroke="#475569" stroke-width="2" fill="none"/>
+    <text x="180" y="255" font-size="11">1</text>
+    <text x="180" y="215" font-size="11">0..*</text>
+    <path d="M 295 320 H 370" stroke="#475569" stroke-width="2" fill="none"/>
+    <text x="307" y="313" font-size="11">1</text>
+    <text x="338" y="313" font-size="11">0..*</text>
+    <path d="M 295 555 H 370" stroke="#475569" stroke-width="2" fill="none"/>
+    <text x="307" y="548" font-size="11">1</text>
+    <text x="338" y="548" font-size="11">0..*</text>
+    <path d="M 620 320 H 695" stroke="#475569" stroke-width="2" fill="none"/>
+    <text x="632" y="313" font-size="11">1</text>
+    <text x="663" y="313" font-size="11">0..*</text>
+    <path d="M 495 265 V 231 H 640 V 209" stroke="#475569" stroke-width="2" fill="none"/>
+    <text x="504" y="256" font-size="11">1</text>
+    <text x="648" y="228" font-size="11">0..*</text>
+    <g id="UserSkill">
+      <rect x="45" y="55" width="250" height="136" rx="8" fill="#fff" stroke="#475569"/>
+      <path d="M 45 87 h 250" stroke="#475569"/>
+      <text x="57" y="77" font-size="15" font-weight="700">UserSkill</text>
+      <text x="57" y="105" font-size="12">user_skill_id : int  PK</text>
+      <text x="57" y="123" font-size="12">user_id : int  FK</text>
+      <text x="57" y="141" font-size="12">skill_name : varchar(100)</text>
+      <text x="57" y="159" font-size="12">source : varchar(20)</text>
+      <text x="57" y="177" font-size="12">created_at : datetime</text>
+    </g>
+    <g id="AIAnalysis">
+      <rect x="515" y="55" width="250" height="154" rx="8" fill="#fff" stroke="#475569"/>
+      <path d="M 515 87 h 250" stroke="#475569"/>
+      <text x="527" y="77" font-size="15" font-weight="700">AIAnalysis</text>
+      <text x="527" y="105" font-size="12">analysis_id : int  PK</text>
+      <text x="527" y="123" font-size="12">application_id : int  FK</text>
+      <text x="527" y="141" font-size="12">analysis_type : varchar(30)</text>
+      <text x="527" y="159" font-size="12">result_text : text</text>
+      <text x="527" y="177" font-size="12">match_score : int NULL</text>
+      <text x="527" y="195" font-size="12">created_at : datetime</text>
+    </g>
+    <g id="User">
+      <rect x="45" y="265" width="250" height="172" rx="8" fill="#fff" stroke="#475569"/>
+      <path d="M 45 297 h 250" stroke="#475569"/>
+      <text x="57" y="287" font-size="15" font-weight="700">User</text>
+      <text x="57" y="315" font-size="12">user_id : int  PK</text>
+      <text x="57" y="333" font-size="12">name : varchar(100)</text>
+      <text x="57" y="351" font-size="12">email : varchar(255) UNIQUE</text>
+      <text x="57" y="369" font-size="12">password_hash : varchar(255)</text>
+      <text x="57" y="387" font-size="12">phone_number : varchar(30) NULL</text>
+      <text x="57" y="405" font-size="12">created_at : datetime</text>
+      <text x="57" y="423" font-size="12">cv_text : text NULL</text>
+    </g>
+    <g id="JobApplication">
+      <rect x="370" y="265" width="250" height="352" rx="8" fill="#fff" stroke="#475569"/>
+      <path d="M 370 297 h 250" stroke="#475569"/>
+      <text x="382" y="287" font-size="15" font-weight="700">JobApplication</text>
+      <text x="382" y="315" font-size="12">application_id : int  PK</text>
+      <text x="382" y="333" font-size="12">user_id : int  FK</text>
+      <text x="382" y="351" font-size="12">company_id : int  FK</text>
+      <text x="382" y="369" font-size="12">job_title : varchar(150)</text>
+      <text x="382" y="387" font-size="12">location : varchar(150) NULL</text>
+      <text x="382" y="405" font-size="12">work_type : varchar(20) NULL</text>
+      <text x="382" y="423" font-size="12">opportunity_type : varchar(20)</text>
+      <text x="382" y="441" font-size="12">status : varchar(30)</text>
+      <text x="382" y="459" font-size="12">job_url : varchar(500) NULL</text>
+      <text x="382" y="477" font-size="12">closing_date : date NULL</text>
+      <text x="382" y="495" font-size="12">applied_at : date NULL</text>
+      <text x="382" y="513" font-size="12">salary_text : varchar(100) NULL</text>
+      <text x="382" y="531" font-size="12">notes : text NULL</text>
+      <text x="382" y="549" font-size="12">created_at : datetime</text>
+      <text x="382" y="567" font-size="12">updated_at : datetime</text>
+      <text x="382" y="585" font-size="12">job_ad_text : text NULL</text>
+      <text x="382" y="603" font-size="12">follow_up_date : date NULL</text>
+    </g>
+    <g id="Interview">
+      <rect x="695" y="265" width="250" height="172" rx="8" fill="#fff" stroke="#475569"/>
+      <path d="M 695 297 h 250" stroke="#475569"/>
+      <text x="707" y="287" font-size="15" font-weight="700">Interview</text>
+      <text x="707" y="315" font-size="12">interview_id : int  PK</text>
+      <text x="707" y="333" font-size="12">application_id : int  FK</text>
+      <text x="707" y="351" font-size="12">scheduled_at : datetime</text>
+      <text x="707" y="369" font-size="12">interview_type : varchar(30)</text>
+      <text x="707" y="387" font-size="12">venue_or_link : varchar(500) NULL</text>
+      <text x="707" y="405" font-size="12">notes : text NULL</text>
+      <text x="707" y="423" font-size="12">outcome : varchar(30) NULL</text>
+    </g>
+    <g id="Company">
+      <rect x="45" y="510" width="250" height="100" rx="8" fill="#fff" stroke="#475569"/>
+      <path d="M 45 542 h 250" stroke="#475569"/>
+      <text x="57" y="532" font-size="15" font-weight="700">Company</text>
+      <text x="57" y="560" font-size="12">company_id : int  PK</text>
+      <text x="57" y="578" font-size="12">name : varchar(150)</text>
+      <text x="57" y="596" font-size="12">website_url : varchar(500) NULL</text>
+    </g>
+  </g>
+</svg>

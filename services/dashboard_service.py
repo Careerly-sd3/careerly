@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from flask import url_for
 from sqlalchemy import case, desc, func, select
 from models import Company, Interview, JobApplication
 from orm_db import operation_session
@@ -137,7 +138,7 @@ def _upcoming_interviews(session, user_id, now_utc):
             JobApplication.user_id == user_id,
             Interview.scheduled_at >= now_utc,
         )
-        .order_by(Interview.scheduled_at.asc())
+        .order_by(Interview.scheduled_at, Interview.interview_id)
         .limit(5)
     )
     rows = session.execute(stmt).all()
@@ -151,6 +152,35 @@ def _upcoming_interviews(session, user_id, now_utc):
         }
         for row in rows
     ]
+
+
+def list_upcoming_follow_ups(session, user_id, today):
+    """Owner-scoped date-only entries from the Dashboard's read transaction."""
+    statement = (
+        select(JobApplication.application_id, Company.name.label("company"),
+               JobApplication.job_title, JobApplication.follow_up_date)
+        .join(Company, Company.company_id == JobApplication.company_id)
+        .where(
+            JobApplication.user_id == user_id,
+            JobApplication.follow_up_date.between(today, today + timedelta(days=7)),
+            JobApplication.status.not_in(("Rejected", "Withdrawn")),
+        )
+        .order_by(JobApplication.follow_up_date, JobApplication.application_id)
+    )
+    return [
+        dict(row, application_link=url_for("tracker", _anchor=f"details-{row['application_id']}"))
+        for row in session.execute(statement).mappings()
+    ]
+
+
+def _upcoming(session, user_id, now_utc):
+    """Date-only follow-ups lead their local day, then interviews in time order."""
+    today = utc_to_dublin(now_utc).date()
+    items = [(row["scheduled_at"].date(), 1, row["scheduled_at"].timestamp(), row["interview_id"],
+              dict(row, kind="interview")) for row in _upcoming_interviews(session, user_id, now_utc)]
+    items.extend((row["follow_up_date"], 0, 0, row["application_id"], dict(row, kind="follow_up"))
+                 for row in list_upcoming_follow_ups(session, user_id, today))
+    return [item[-1] for item in sorted(items, key=lambda item: item[:-1])]
 
 
 def _recent_applications(session, user_id):
@@ -212,7 +242,7 @@ def load_dashboard(user_id):
             "interview_types": _interview_types(session, user_id),
             "top_companies": _top_companies(session, user_id),
             "response_rate": _response_rate(session, user_id),
-            "upcoming_interviews": _upcoming_interviews(session, user_id, now_utc),
+            "upcoming": _upcoming(session, user_id, now_utc),
             "recent_applications": _recent_applications(session, user_id),
             "work_type_breakdown": _work_type_breakdown(session, user_id),
         }

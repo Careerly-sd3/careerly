@@ -134,7 +134,7 @@ def dashboard():
             "interview_types": [],
             "top_companies": [],
             "response_rate": {"responded": 0, "total": 0, "rate": 0},
-            "upcoming_interviews": [],
+            "upcoming": [],
             "recent_applications": [],
             "work_type_breakdown": [],
         }
@@ -196,7 +196,7 @@ def save_application_notes(application_id):
 # logged-in user, and ids only from the address, never from the form.
 APPLICATION_FIELDS = (
     "company", "job_title", "opportunity_type", "work_type", "status", "location",
-    "job_url", "closing_date", "applied_at", "salary_text", "job_ad_text",
+    "job_url", "closing_date", "applied_at", "follow_up_date", "salary_text", "job_ad_text",
 )
 
 

@@ -272,7 +272,7 @@ class InterviewServiceTests(unittest.TestCase):
         self.assertEqual(compiled.params,dict(user_id_1=7))
         self.assertNotIn('job_ad_text',statement.selected_columns.keys())
         self.assertEqual(set(statement.selected_columns.keys()),{
-            'application_id','company','job_title','status','applied_at','closing_date',
+            'application_id','company','job_title','status','applied_at','closing_date','follow_up_date',
             'created_at','location','work_type','opportunity_type','salary_text','job_url',
             'notes','updated_at','website_url'})
         self.result.mappings.return_value.all.return_value=[self.application]

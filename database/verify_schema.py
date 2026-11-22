@@ -30,7 +30,7 @@ OPTIONAL = {
     "Company": ("website_url",),
     "JobApplication": (
         "location", "work_type", "job_url", "closing_date", "applied_at",
-        "salary_text", "notes", "job_ad_text",
+        "salary_text", "notes", "job_ad_text", "follow_up_date",
     ),
     "Interview": ("venue_or_link", "notes", "outcome"),
     "AIAnalysis": ("match_score",),
@@ -156,15 +156,30 @@ class SchemaChecks:
         )
 
     def preflight(self):
+        mode, foreign_keys, lowercase_tables = self.one(
+            "SELECT @@SESSION.sql_mode, @@SESSION.foreign_key_checks, @@GLOBAL.lower_case_table_names"
+        )
+        # Windows MySQL can store table names in lower case.
+        normalize = str.lower if lowercase_tables else str
+        expected_tables = {normalize(table) for table in PRIMARY_KEYS}
         self.cursor.execute(
             "SELECT `TABLE_NAME`, `ENGINE`, `TABLE_COLLATION` "
             "FROM `information_schema`.`TABLES` WHERE `TABLE_SCHEMA` = DATABASE()"
         )
-        tables = {row[0]: row[1:] for row in self.cursor.fetchall()}
-        for table in PRIMARY_KEYS:
+        tables = {normalize(row[0]): row[1:] for row in self.cursor.fetchall()}
+        for table in expected_tables:
             require(tables.get(table) == ("InnoDB", "utf8mb4_0900_ai_ci"),
                     "Expected six InnoDB tables with the agreed collation.")
-        mode, foreign_keys = self.one("SELECT @@SESSION.sql_mode, @@SESSION.foreign_key_checks")
+        self.cursor.execute(
+            "SELECT `TABLE_NAME`, `COLUMN_NAME`, `COLUMN_TYPE`, `IS_NULLABLE`, `COLUMN_DEFAULT` "
+            "FROM `information_schema`.`COLUMNS` WHERE `TABLE_SCHEMA` = DATABASE()"
+        )
+        columns = {(normalize(table), column): (kind, nullable, default)
+                   for table, column, kind, nullable, default in self.cursor.fetchall()
+                   if normalize(table) in expected_tables}
+        follow_up = columns.get((normalize("JobApplication"), "follow_up_date"))
+        require(len(columns) == 45 and follow_up == ("date", "YES", None),
+                "Expected 45 columns including nullable JobApplication.follow_up_date from migration 002.")
         require(bool({"STRICT_TRANS_TABLES", "STRICT_ALL_TABLES"} & set(mode.split(","))),
                 "Strict SQL mode is required; no session settings were changed.")
         require(foreign_keys == 1, "Foreign-key checks must already be enabled.")

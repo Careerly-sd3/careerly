@@ -65,6 +65,7 @@ Names, lengths and types follow the attached ERD. `NULL` annotations mean nullab
 | status | VARCHAR(30) | - | No | DEFAULT 'Saved'; allowed: Saved, Applied, Interview, Offer, Rejected, Withdrawn | Current tracking stage. |
 | job_url | VARCHAR(500) | - | Yes | None specified | Link to the job advertisement. |
 | closing_date | DATE | - | Yes | None specified | Application deadline. |
+| follow_up_date | DATE | - | Yes | NULL | Optional follow-up date. Added by migration 002. |
 | applied_at | DATE | - | Yes | None specified | Date the user applied; no time component. |
 | salary_text | VARCHAR(100) | - | Yes | None specified | Salary wording or range; not a numeric amount. |
 | notes | TEXT | - | Yes | None specified | User notes about the application. |
@@ -136,7 +137,7 @@ Deleting an application does not delete its company. A company with no remaining
 
 ## 6. ERD
 
-The supplied PNG is copied unchanged; it remains the source diagram, including any omissions noted below.
+The [editable ERD source](careerly-erd.svg) and the rendered diagram include the nullable follow-up date from migration 002.
 
 ![Careerly relational database ERD](careerly-erd.png)
 
@@ -163,17 +164,17 @@ The following results were reported by the user and align with [MySQL setup](mys
 - The team has reviewed the six-table ERD and was happy with it. The user subsequently reported agreement on deletion actions, nullability, comparison and timestamp handling for CAR-155. Optional input provenance remains outside that agreement.
 - `JobApplication.applied_at` is labelled `date NULL` in the saved diagram. The attribute table now uses nullable `DATE`, correcting the earlier `DATETIME` transcription. The label is readable and has no apparent type ambiguity; it records a date without a time component.
 - The diagram specifies `INT` identifiers without explicitly showing `AUTO_INCREMENT`. This document records `INT AUTO_INCREMENT` for all six primary keys as required by CAR-2; foreign keys remain matching signed `INT`.
-- The diagram shows `User.email` as unique. It omits annotations for combined `UserSkill` uniqueness, source values, the status default and allowed values, analysis types and the conditional score rule. These CAR-2 requirements are documented above; the supplied image remains unchanged.
+- Uniqueness, defaults and allowed-value constraints are documented above.
 - `AIAnalysis.match_score` is shown as nullable `INT`. The CAR-2 rule refines that to required 0-100 for `cv_match` and NULL otherwise. No additional field is required for these value constraints.
 - Optional attributes are explicitly marked `NULL`; the team has confirmed all other attributes are NOT NULL, although the diagram does not spell out every NOT NULL constraint.
-- The diagram has no deletion actions. The subsequently agreed actions are recorded in section 5 and migration 001; the image remains unchanged.
+- Deletion actions are recorded in section 5 and migration 001.
 
 ### Agreed implementation contract
 
 The following decisions were reported by the user as agreed by the team. They specify application responsibilities without claiming those features have been implemented.
 
 - Flask supplies UTC `DATETIME` values without database timestamp defaults. Flask sets `JobApplication.updated_at` whenever an application changes; there is no database automatic update clause.
-- Interview scheduling converts local input to UTC for storage and back to local time for display. `DATETIME` itself carries no timezone. `applied_at` and `closing_date` are `DATE` values without timezone conversion.
+- Interview scheduling converts local input to UTC for storage and back to local time for display. `DATETIME` itself carries no timezone. `applied_at`, `closing_date` and `follow_up_date` are `DATE` values without timezone conversion.
 - Use `utf8mb4_0900_ai_ci` for case/accent-insensitive comparisons and uniqueness. Flask trims skill names before saving, preserves display spelling and avoids duplicates while preserving manually added skills. The combined unique constraint enforces per-user uniqueness; it does not perform trimming.
 - Target Aiven MySQL 8.4.11. Migration 001 uses five named CHECK constraints: source, status, analysis type, cv_match score presence/range, and NULL scores for other analysis types. Allowed-value comparisons require exact-case spellings, independently of general collation. Explicit score NULL handling prevents a missing cv_match score passing through SQL UNKNOWN.
 

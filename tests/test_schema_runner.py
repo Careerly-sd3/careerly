@@ -166,6 +166,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_preflight_rejects_nontransactional_table(self):
         cursor = MagicMock()
+        cursor.fetchone.return_value = ("STRICT_TRANS_TABLES", 1, 0)
         cursor.fetchall.return_value = [
             (table, "MyISAM" if table == "User" else "InnoDB", "utf8mb4_0900_ai_ci")
             for table in runner.PRIMARY_KEYS

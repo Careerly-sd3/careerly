@@ -223,6 +223,10 @@ def _clean_fields(*, company, job_title, opportunity_type, work_type, status, lo
     if (values["status"] == "Saved" and values["applied_at"] is not None
             and "status" not in errors and "applied_at" not in errors):
         errors["applied_at"] = "Leave the applied date empty while the status is Saved."
+    closing_date = values["closing_date"]
+    applied_at = values["applied_at"]
+    if closing_date is not None and applied_at is not None and closing_date < applied_at:
+        errors["closing_date"] = "Closing date cannot be earlier than applied date."
     if errors:
         raise ApplicationValidationError(errors)
     return company_name, values

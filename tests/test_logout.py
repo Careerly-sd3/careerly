@@ -28,7 +28,7 @@ class HeaderHTML(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
-        if tag == "span" and attributes.get("id") == "account-name":
+        if tag == "button" and attributes.get("data-bs-toggle") == "menu":
             self.in_name = True
         if tag == "form" and attributes.get("id") == "logout-form":
             self.logout = attributes
@@ -46,7 +46,7 @@ class HeaderHTML(HTMLParser):
             self.button_text += data
 
     def handle_endtag(self, tag):
-        if tag == "span":
+        if tag == "button":
             self.in_name = False
         if tag == "form":
             self.in_logout = False

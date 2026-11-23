@@ -2,13 +2,14 @@
 
 from collections import Counter
 from datetime import datetime, timezone
+import json
 import logging
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
 from db import DatabaseError
-from models import JobApplication, Company
+from models import AIAnalysis, JobApplication, Company
 from orm_db import operation_session
 from services.interview_service import list_interviews, _list_interviews
 from services.interview_time import utc_to_dublin
@@ -60,20 +61,23 @@ def _applications_statement(user_id):
             .where(JobApplication.user_id == user_id).order_by(JobApplication.application_id))
 
 
-# Generic practice questions, the same for everyone. Personalised ones are planned
-# to come from AIAnalysis (interview_prep) later.
-PRACTICE_QUESTIONS = (
-    "Tell me about a project you built and a technical decision you would change.",
-    "How do you debug a problem when you don't know where to start?",
-    "Explain the difference between a process and a thread.",
-    "What is the difference between a stack and a queue, and when would you use each?",
-    "What happens when you type a URL into a browser and press Enter?",
-    "Walk me through how you would design a URL shortener.",
-    "Tell me about a bug that took you a long time to fix. What did you learn?",
-    "Describe a time you disagreed with a teammate about a technical approach.",
-    "How do you approach reviewing someone else's code?",
-    "Why do you want this internship, and what do you hope to learn from it?",
-)
+def _practice_questions(session, user_id, application_id):
+    """The questions from the application's latest AI interview prep, or [] if none were generated."""
+    result_text = session.execute(
+        select(AIAnalysis.result_text)
+        .join(JobApplication, JobApplication.application_id == AIAnalysis.application_id)
+        .where(AIAnalysis.application_id == application_id, JobApplication.user_id == user_id,
+               AIAnalysis.analysis_type == "interview_prep")
+        .order_by(AIAnalysis.created_at.desc(), AIAnalysis.analysis_id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if not result_text:
+        return []
+    try:
+        return [item["question"] for item in json.loads(result_text)["questions"]]
+    except (ValueError, KeyError, TypeError):
+        logger.warning("Unreadable interview prep for application %s", application_id)
+        return []
 
 
 def _fetch_all(session, user_id):
@@ -313,7 +317,7 @@ def _closing_date_sort_key(row):
 
 
 def load_tracker_page(user_id, status="", company="", role="", sort=""):
-    """Everything the tracker page shows for one user, from two queries.
+    """Everything the tracker page shows for one user, from one read transaction.
 
     The filters only narrow the applications table. The status tiles, the total and
     the company and role dropdown lists always cover all of the user's applications.
@@ -327,6 +331,11 @@ def load_tracker_page(user_id, status="", company="", role="", sort=""):
             applications = _fetch_all(session, user_id)
             cutoff = _now_utc()
             interviews = _list_interviews(session, user_id, cutoff=cutoff)
+            # Interview practice shows the AI questions for the soonest upcoming interview only.
+            next_interview = next((row for row in interviews if row["scheduled_at"] >= cutoff), None)
+            practice_application_id = next_interview["application_id"] if next_interview else None
+            practice_questions = (_practice_questions(session, user_id, practice_application_id)
+                                  if next_interview else [])
     except DatabaseError as error:
         safe_error = DatabaseError("Database read failed.")
         logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
@@ -345,6 +354,8 @@ def load_tracker_page(user_id, status="", company="", role="", sort=""):
         "interviews": upcoming,
         "has_more_interviews": len(cards) > len(upcoming),
         "practice_meta": _practice_meta(cards, cutoff),
+        "practice_questions": practice_questions,
+        "practice_application_id": practice_application_id,
         "status_counts": _status_counts(applications),
     }
 

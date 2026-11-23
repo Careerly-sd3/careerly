@@ -2,9 +2,9 @@
 
 ## 1. Purpose and scope
 
-This document describes the relational database design for Careerly, using Python, Flask and MySQL. The team has reviewed the six-table ERD and was happy with it. That review does not imply approval of every additional recommendation in this document. The six-table schema is implemented in hosted MySQL; tracker reads and interview writes now use MySQL; application CRUD, CV extraction and AI generation remain unimplemented. The implementation and verification status below distinguishes these capabilities.
+This document describes the relational database design for Careerly, using Python, Flask and MySQL. The team has reviewed the six-table ERD and was happy with it. That review does not imply approval of every additional recommendation in this document. The six-table schema is implemented in hosted MySQL; tracker reads and interview writes now use MySQL; application CRUD, CV extraction and the AI features are implemented as described in [AI features](../ai/ai-features.md). The implementation and verification status below distinguishes these capabilities.
 
-The core tracker comprises User, Company, JobApplication and Interview. UserSkill supports manual and planned CV-extracted skills; AIAnalysis stores results for planned interview preparation, missing-skills analysis and CV matching. CV extraction and AI generation are planned features and are not implemented in the current code.
+The core tracker comprises User, Company, JobApplication and Interview. UserSkill holds manual and CV-extracted skills; AIAnalysis stores results for interview preparation, missing-skills analysis and CV matching. See [AI features](../ai/ai-features.md).
 
 ## 2. Entities
 
@@ -31,7 +31,7 @@ Names, lengths and types follow the attached ERD. `NULL` annotations mean nullab
 | password_hash | VARCHAR(255) | - | No | Hash only; no default specified | Password hash, never a plaintext password. |
 | phone_number | VARCHAR(30) | - | Yes | None specified | Optional contact number; text preserves formatting. |
 | created_at | DATETIME | - | No | None specified | Account creation date and time. |
-| cv_text | TEXT | - | Yes | None specified | CV text used by planned AI features. |
+| cv_text | TEXT | - | Yes | None specified | Text read from the uploaded CV; used by the AI features. |
 
 ### UserSkill
 
@@ -145,7 +145,7 @@ The [editable ERD source](careerly-erd.svg) and the rendered diagram include the
 
 ### Comparison with existing code
 
-- app.py creates the Flask app, registers the database connection layer and serves index.html at `/` and the tracker at `/tracker`. The tracker uses Flask-Login and owner-filtered MySQL reads from tracker_data.py. Registration, login and user loading now query the persisted User table through db.get_db(); automated integration coverage uses mocked database access. Application CRUD and AI features remain unimplemented. Owner-scoped interview create/edit/delete routes now use the shared service and CSRF helper; see [CAR-67 evidence](../interviews/add-interview.md) for user-reported browser results and remaining checks.
+- app.py creates the Flask app, registers the database connection layer and serves index.html at `/` and the tracker at `/tracker`. The tracker uses Flask-Login and owner-filtered MySQL reads from tracker_data.py. Registration, login and user loading now query the persisted User table through db.get_db(); automated integration coverage uses mocked database access. The AI features are described in [AI features](../ai/ai-features.md). Owner-scoped interview create/edit/delete routes now use the shared service and CSRF helper; see [CAR-67 evidence](../interviews/add-interview.md) for user-reported browser results and remaining checks.
 - templates/index.html extends template.html. The base template displays navigation, the escaped persisted user name and a POST/CSRF Logout action. Interview forms use the existing Interview attributes; presentation changes do not add schema fields.
 - db.py provides a lazy, Flask-context-scoped `mysql-connector-python` connection layer with CA certificate and hostname verification. It rolls back uncommitted work and closes connections at teardown without automatically committing. requirements.txt includes the MySQL driver and python-dotenv; no ORM or model layer is implemented. tracker_data.py supplies database-backed Company, JobApplication and Interview reads. The User adapter is not an ORM model and shares the same mysql-connector-python helper; no separate connection configuration is introduced.
 
@@ -181,13 +181,13 @@ The following decisions were reported by the user as agreed by the team. They sp
 ### Remaining application decisions
 
 - Database-level vocabularies for `work_type`, `opportunity_type`, `interview_type` and `outcome` remain unrestricted. CAR-67 validates interview types online/phone/technical/onsite and outcomes Pending/Passed/Failed in application code; this adds no database constraints.
-- Werkzeug password hashing and login verification are implemented in the persistent authentication adapter. Interview form/CSRF integration is implemented; CV/AI features remain subsequent work.
+- Werkzeug password hashing and login verification are implemented in the persistent authentication adapter. Interview form/CSRF integration is implemented; CV and AI features are implemented too.
 
 ### Future considerations
 
 An optional future enhancement is `AIAnalysis.input_snapshot`, potentially using MySQL `JSON` to retain the CV text, skills and job details used at generation time. It is outside the reviewed six-table attribute definitions and is not a CAR-2 completion requirement. If pursued, the team should separately agree its structure, nullability, defaults, privacy and retention policy, and whether a version or fingerprint is useful.
 
-The current ERD does not retain input snapshots or versions, so exact input reconstruction and reliable stale-result detection cannot be derived from stored inputs alone. This limitation does not change the rule that saved results reflect generation-time inputs and changed inputs require a new analysis.
+The current ERD does not retain input snapshots, so the exact inputs cannot be rebuilt. To detect out-of-date results, the AI features store a fingerprint (hash) of the inputs inside `result_text` and compare it with the current CV, skills and job advert. Changed inputs still require a new analysis.
 
 ### CAR-2 completion and publication
 

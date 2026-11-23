@@ -16,6 +16,9 @@
         <i class="bi bi-chevron-down" aria-hidden="true"></i> Details
     </button>
     <a class="btn btn-subtle btn-sm theme-secondary" href="{{ url_for('add_interview', application_id=application.application_id) }}">Add interview</a>
+    <a class="btn btn-subtle btn-sm theme-info" href="{{ url_for('ai.analysis', application_id=application.application_id) }}" title="Match score, missing skills and interview prep">
+        <i class="bi bi-stars" aria-hidden="true"></i> AI insights
+    </a>
     <a class="btn btn-subtle btn-icon btn-sm theme-secondary" href="{{ url_for('edit_application', application_id=application.application_id) }}" aria-label="Edit {{ application.company }} application" title="Edit application">
         <i class="bi bi-pencil" aria-hidden="true"></i>
     </a>
@@ -81,6 +84,9 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}" />
 <link rel="stylesheet" href="{{ url_for('static', filename='css/application-details.css') }}" />
 {% endblock %}
+
+{# Reload every few seconds while practice questions are being made in the background #}
+{% block head %}{% if practice_job and practice_job.state == 'running' %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 
 {% block main %}
 <section class="tracker d-flex flex-column gap-6">
@@ -199,8 +205,9 @@
             {% endfor %}
         </div>
 
-        {# Practice card: exactly as tall as the interview cards beside it ("Show more" sits below both).
-           The question list slides open inside it. #}
+        {# Practice card: the AI questions for the soonest upcoming interview, as tall as the interview
+           cards beside it ("Show more" sits below both). The question list slides open inside it. #}
+        {% set practice_questions = practice_questions|default([], true) %}
         {% if practice_questions %}
         <article id="practice" class="card practice-card g-col-12 md:g-col-6" style="min-height: 18rem"
             data-bs-theme="light" data-questions="{{ practice_questions|tojson|forceescape }}">
@@ -237,8 +244,22 @@
                 </div>
             </div>
         </article>
+        {% elif practice_application_id %}
+        {# No questions yet: they are made in the background; the page reloads until they are ready #}
+        <article class="card practice-card g-col-12 md:g-col-6" data-bs-theme="light">
+            <div class="card-body align-items-center text-center" role="status">
+                <i class="bi bi-chat-square-text fs-3xl" aria-hidden="true"></i>
+                {% if not ai_configured %}
+                <p class="mb-0">Practice questions for {{ practice_meta or 'your next interview' }} will appear here once AI features are set up.</p>
+                {% elif practice_job and practice_job.state == 'failed' %}
+                <p class="mb-0">Couldn't prepare practice questions: {{ practice_job.message }}</p>
+                {% else %}
+                <p class="mb-0">Preparing practice questions for {{ practice_meta or 'your next interview' }}…</p>
+                {% endif %}
+            </div>
+        </article>
         {% else %}
-        {{ empty_state('bi-chat-square-text', 'No practice questions yet.', 'practice-card g-col-12 md:g-col-6') }}
+        {{ empty_state('bi-chat-square-text', 'Practice questions for your next interview appear here.', 'practice-card g-col-12 md:g-col-6') }}
         {% endif %}
 
         {# "Show more" opens the Interviews page; it sits under the interview cards #}

@@ -41,6 +41,13 @@ Careerly is a small Flask web app for a career-focused landing page / dashboard.
 
 See the proposed [database design](docs/database/database-design.md) for CAR-2.
 
+## AI features
+
+CV upload and skills (Profile), filling the application form from a job ad, match score,
+missing skills and interview prep (CAR-80 to CAR-85) use Google Gemini. Set `GEMINI_API_KEY`
+in `.env` to enable them; without it the app runs and the AI buttons are disabled.
+How it works, routes and how to test: [AI features](docs/ai/ai-features.md).
+
 ## Database connection and authentication
 
 Use `SECRET_KEY` and the six `MYSQL_*` settings in `.env.example`; there is no

@@ -3,8 +3,8 @@
 Careerly's implemented authentication, application notes, interview operations and
 Tracker reads use SQLAlchemy directly. Routes receive plain User adapters or fully
 materialised dictionaries; no attached models or lazy queries reach templates.
-Application creation/general editing/deletion, skills management and AI generation
-remain outside the implemented feature set.
+Skills, CV text and AI results also use SQLAlchemy (`services/profile_service.py`,
+`services/ai_analysis_service.py`).
 
 ## Setup and schema preservation
 

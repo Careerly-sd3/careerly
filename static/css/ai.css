@@ -1,0 +1,187 @@
+/* AI features: Profile, AI insights and the Fill from ad box. Matches the dark auth cards. */
+
+.ai-page {
+    width: min(100%, 56rem);
+    margin-inline: auto;
+}
+
+/* Start right under the top bar, like the Interviews page (style.css gives every page section a 5rem top margin). */
+main > .ai-page {
+    margin-block-start: 0;
+}
+
+.ai-title {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.ai-muted { opacity: 0.75; }
+
+.ai-card {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.75rem;
+    background: rgba(0, 0, 0, 0.6);
+    min-width: 0;
+}
+
+.ai-back {
+    display: inline-flex;
+    font-size: 1.5rem;
+    line-height: 1;
+    color: inherit;
+    opacity: 0.8;
+}
+.ai-back:hover, .ai-back:focus-visible { opacity: 1; }
+
+.ai-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.ai-pill-good { border-color: #75b798; color: #a3cfbb; }
+
+.ai-warning {
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 205, 57, 0.12);
+    color: #ffe08a;
+    font-size: 0.9rem;
+}
+
+/* Profile */
+.ai-cv-text summary { cursor: pointer; font-size: 0.9rem; }
+.ai-cv-text pre {
+    margin: 0.5rem 0 0;
+    max-height: 16rem;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ai-skill-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ai-skill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.3rem 0.2rem 0.7rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+.ai-skill form { display: contents; }
+.ai-skill-source { font-size: 0.7rem; opacity: 0.65; text-transform: uppercase; letter-spacing: 0.05em; }
+.ai-skill-remove {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0 0.2rem;
+    line-height: 1;
+    opacity: 0.7;
+}
+.ai-skill-remove:hover, .ai-skill-remove:focus-visible { opacity: 1; }
+
+.ai-inline-form { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; }
+
+.auth-field input[type="file"] { padding: 0.45rem; }
+.auth-field textarea {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    font: inherit;
+    color: white;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 0.5rem;
+}
+
+/* Fill from ad (on the Add application form) */
+.ai-prefill {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    border: 1px dashed rgba(110, 223, 246, 0.5);
+    border-radius: 0.75rem;
+    background: rgba(110, 223, 246, 0.06);
+}
+.ai-prefill p { margin: 0; }
+.ai-note { color: #9eeaf9; font-size: 0.9rem; }
+.ai-suggested {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-inline-start: 0.25rem;
+    padding: 0 0.4rem;
+    border-radius: 0.3rem;
+    font-size: 0.72rem;
+    color: #055160;
+    background: #9eeaf9;
+}
+
+/* AI insights: inputs checklist */
+.ai-checks { display: grid; gap: 0.4rem; }
+.ai-check { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; }
+.ai-check.is-ok i { color: #75b798; }
+.ai-check.is-missing i { color: #ffcd39; }
+.ai-check a { font-size: 0.875rem; }
+
+/* AI insights: score ring */
+.ai-score-row { display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem; }
+.ai-score {
+    --score: 0;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 6.5rem;
+    height: 6.5rem;
+    border-radius: 50%;
+    background:
+        radial-gradient(closest-side, #111 79%, transparent 80%),
+        conic-gradient(#6edff6 calc(var(--score) * 1%), rgba(255, 255, 255, 0.12) 0);
+}
+.ai-score span { font-size: 1.9rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ai-score small { font-size: 1rem; opacity: 0.7; }
+
+.ai-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
+@media (max-width: 640px) { .ai-columns { grid-template-columns: minmax(0, 1fr); } }
+
+.ai-req-list { display: grid; gap: 0.6rem; }
+.ai-req-list li { display: flex; gap: 0.5rem; align-items: flex-start; min-width: 0; }
+.ai-req-list li > div { min-width: 0; overflow-wrap: anywhere; }
+.ai-req-list p { margin: 0.1rem 0 0; font-size: 0.85rem; opacity: 0.75; }
+.ai-req-list .is-met > i { color: #75b798; }
+.ai-req-list .is-gap > i { color: #ea868f; }
+.ai-tag {
+    font-size: 0.7rem;
+    padding: 0 0.35rem;
+    border-radius: 0.3rem;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    opacity: 0.8;
+    white-space: nowrap;
+}
+
+/* AI insights: interview prep */
+.ai-question {
+    padding: 0.6rem 0.8rem;
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.ai-question summary { cursor: pointer; font-weight: 500; }
+.ai-question p { margin: 0.5rem 0 0; font-size: 0.9rem; }

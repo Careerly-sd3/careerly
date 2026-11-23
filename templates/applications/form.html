@@ -19,11 +19,15 @@ Save stays disabled until a trusted action URL and token are supplied.
 {% set errors = errors|default({}, true) %}
 {% set token = csrf_token() if csrf_token is defined and csrf_token is callable else csrf_token|default('', true) %}
 {% set target = action_url|default('', true) %}
+{# Fill from ad: the fields the AI filled in, and what the user typed into the box #}
+{% set suggested = suggested|default([], true) %}
+{% set prefill = prefill|default({}, true) %}
 
 {% block title %}{{ 'Edit application' if editing else 'Add application' }}{% endblock %}
 
 {% block css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai.css') }}">
 {% endblock %}
 
 {% macro error_message(name) -%}
@@ -37,9 +41,13 @@ Save stays disabled until a trusted action URL and token are supplied.
 {% if errors.get(name) or help_id %}aria-describedby="{{ help_id }}{% if help_id and errors.get(name) %} {% endif %}{% if errors.get(name) %}application-{{ name }}-error{% endif %}"{% endif %}
 {%- endmacro %}
 
+{% macro suggested_tag(name) -%}
+{% if name in suggested %}<span class="ai-suggested"><i class="bi bi-stars" aria-hidden="true"></i> AI suggestion</span>{% endif %}
+{%- endmacro %}
+
 {% macro text_field(name, label, type='text', required=False, maxlength=None, placeholder='', help_id='') -%}
 <div class="auth-field">
-    <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span></label>
+    <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span> {{ suggested_tag(name) }}</label>
     <input id="application-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ form.get(name) or '' }}"
         {% if maxlength %}maxlength="{{ maxlength }}"{% endif %}{% if placeholder %} placeholder="{{ placeholder }}"{% endif %}{% if required %} required{% endif %}
         {{ error_attributes(name, help_id) }}>
@@ -50,7 +58,7 @@ Save stays disabled until a trusted action URL and token are supplied.
 {# A saved value outside the allowed list (an older or hand-edited row) is shown, disabled, so it is never silently replaced #}
 {% macro select_field(name, label, values, selected, required=False, empty_label='') -%}
 <div class="auth-field">
-    <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span></label>
+    <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span> {{ suggested_tag(name) }}</label>
     <select id="application-{{ name }}" name="{{ name }}"{% if required %} required{% endif %} {{ error_attributes(name) }}>
         {% if selected and selected not in values %}
         <option value="{{ selected }}" selected disabled>Unsupported selection: {{ selected }}</option>
@@ -74,6 +82,37 @@ Save stays disabled until a trusted action URL and token are supplied.
     <p class="auth-intro">{{ application.job_title }} &middot; {{ application.company }}</p>
     {% endif %}
 
+    {% if not editing %}
+    <section class="ai-prefill" aria-labelledby="prefill-heading">
+        <h2 id="prefill-heading" class="fs-md fw-bold"><i class="bi bi-stars" aria-hidden="true"></i> Fill from a job ad</h2>
+        <p class="fs-sm">Give us the ad one way and we'll fill in the form for you to check. Nothing is saved until you press Save.</p>
+        {% if prefill_error %}<p id="prefill-error" class="auth-error" role="alert">{{ prefill_error }}</p>{% endif %}
+        {% if suggested %}<p class="ai-note" role="status">We filled in the fields marked <i class="bi bi-stars" aria-hidden="true"></i> AI suggestion. Check them before saving.</p>{% endif %}
+        <form id="prefill-form" method="post" action="{{ url_for('ai.prefill_application') }}" enctype="multipart/form-data" class="d-flex flex-column gap-4" data-ai-run>
+            {% if token %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endif %}
+            <div class="auth-field">
+                <label for="prefill-url">Job ad link</label>
+                <input id="prefill-url" name="prefill_url" type="url" maxlength="500" placeholder="https://" value="{{ prefill.get('prefill_url', '') }}">
+                <p class="fs-sm m-0">Public pages only. LinkedIn and paywalled sites need a login, so use one of the options below for those.</p>
+            </div>
+            <div class="auth-field">
+                <label for="prefill-text">Or paste the job description</label>
+                <textarea id="prefill-text" name="prefill_text" rows="4">{{ prefill.get('prefill_text', '') }}</textarea>
+            </div>
+            <div class="auth-field">
+                <label for="prefill-file">Or upload the job page</label>
+                <input id="prefill-file" name="prefill_file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp">
+                <p class="fs-sm m-0">Save the page as a PDF (Ctrl+P or Cmd+P, then Save as PDF) or take a screenshot. Up to 5 MB.</p>
+            </div>
+            <button type="submit" class="btn-outline theme-inverse align-self-start"{% if not token or ai_configured is defined and not ai_configured %} disabled{% endif %}>
+                <i class="bi bi-stars" aria-hidden="true"></i> Fill from ad
+            </button>
+            {% if ai_configured is defined and not ai_configured %}<p class="fs-sm m-0">AI features are not set up yet (GEMINI_API_KEY is missing).</p>{% endif %}
+        </form>
+        <script src="{{ url_for('static', filename='js/ai.js') }}" defer></script>
+    </section>
+    {% endif %}
+
     {% if errors and not (errors|length == 1 and '_form' in errors) %}
     <div class="alert theme-danger" role="alert">Please correct the highlighted fields.</div>
     {% endif %}
@@ -95,7 +134,7 @@ Save stays disabled until a trusted action URL and token are supplied.
         {{ text_field('salary_text', 'Salary', maxlength=100, placeholder='e.g. 35,000 - 40,000, or competitive') }}
 
         <div class="auth-field">
-            <label for="application-job_ad_text">Job advert <span class="fs-sm">(optional)</span></label>
+            <label for="application-job_ad_text">Job advert <span class="fs-sm">(optional; needed for AI insights)</span></label>
             <textarea id="application-job_ad_text" name="job_ad_text" rows="8" {{ error_attributes('job_ad_text') }}>{{ form.get('job_ad_text') or '' }}</textarea>
             {{ error_message('job_ad_text') }}
         </div>

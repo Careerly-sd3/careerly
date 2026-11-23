@@ -1,0 +1,157 @@
+{% extends "template.html" %}
+{#
+AI insights for one application: match score, missing skills and interview prep.
+Context comes from services.ai_features.insights plus `job`, the status of the
+background refresh. Missing or out-of-date results are redone in the background
+and the page reloads itself until they are ready. AI text is auto-escaped.
+#}
+{% block title %}AI insights{% endblock %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai.css') }}">
+{% endblock %}
+
+{% set app_id = application.application_id %}
+{% set updating = job and job.state == 'running' %}
+{% set category_labels = {'behavioural': 'Behavioural', 'role': 'About the role', 'company': 'About the company'} %}
+
+{# Reload every few seconds while results are made in the background #}
+{% block head %}{% if updating %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+
+{% macro check(ok, label, fix_url=None, fix_label=None) -%}
+<li class="ai-check {{ 'is-ok' if ok else 'is-missing' }}">
+    <i class="bi {{ 'bi-check-circle-fill' if ok else 'bi-exclamation-circle' }}" aria-hidden="true"></i>
+    <span>{{ label }}</span>
+    {% if not ok and fix_url %}<a href="{{ fix_url }}">{{ fix_label }}</a>{% endif %}
+</li>
+{%- endmacro %}
+
+{# The background job's progress for a section that needs updating #}
+{% macro job_note(needed, what) -%}
+{% if needed and ai_configured %}
+{% if updating %}
+<p class="ai-note m-0" role="status"><i class="bi bi-hourglass-split" aria-hidden="true"></i> Updating {{ what }} with your latest CV, skills and job advert… This page refreshes by itself.</p>
+{% elif job and job.state == 'failed' %}
+<p class="ai-warning m-0" role="alert"><i class="bi bi-exclamation-triangle" aria-hidden="true"></i> Couldn't update {{ what }}: {{ job.message }}</p>
+{% endif %}
+{% endif %}
+{%- endmacro %}
+
+{% block main %}
+<section class="ai-page d-flex flex-column gap-6">
+    <header class="d-flex flex-column gap-2">
+        <div class="ai-title">
+            <a href="{{ url_for('tracker') }}" class="ai-back" aria-label="Back to Tracker" title="Back to Tracker"><i class="bi bi-arrow-left" aria-hidden="true"></i></a>
+            <h1 class="fs-xl fw-bold m-0">AI insights</h1>
+        </div>
+        <p class="m-0 ai-muted">{{ application.job_title }} · {{ application.company }}</p>
+    </header>
+
+    {% if not ai_configured %}
+    <div class="alert theme-warning m-0">AI features are not set up yet. Add GEMINI_API_KEY to the .env file and restart the app.</div>
+    {% endif %}
+
+    <section class="ai-card" aria-labelledby="inputs-heading">
+        <h2 id="inputs-heading" class="fs-md fw-bold m-0">What the AI uses</h2>
+        <ul class="ai-checks list-unstyled m-0">
+            {{ check(has_job_ad, 'Job advert text' if has_job_ad else 'No job advert text yet', url_for('edit_application', application_id=app_id), 'Add it') }}
+            {{ check(has_cv, 'CV saved' if has_cv else 'No CV yet', url_for('ai.profile'), 'Upload it') }}
+            {{ check(skill_count > 0, (skill_count ~ ' skill' ~ ('' if skill_count == 1 else 's')) if skill_count else 'No skills yet', url_for('ai.profile'), 'Add skills') }}
+            {% if interview %}
+            {{ check(true, ('Next interview: ' if interview_is_upcoming else 'Last interview: ') ~ interview.interview_type|capitalize ~ ', ' ~ interview_text) }}
+            {% else %}
+            {{ check(false, 'No interview added (prep questions will be general)', url_for('add_interview', application_id=app_id), 'Add one') }}
+            {% endif %}
+        </ul>
+    </section>
+
+    {# ---------- Match score and missing skills (CAR-84, CAR-85) ---------- #}
+    <section id="fit" class="ai-card" aria-labelledby="fit-heading">
+        <h2 id="fit-heading" class="fs-lg fw-bold m-0">Match score and missing skills</h2>
+        {{ job_note(fit_needed, 'the match score') }}
+
+        {% if fit %}
+        {% set requirements = fit.result.requirements %}
+        <div class="ai-score-row">
+            <div class="ai-score" style="--score: {{ fit.match_score }}" role="img" aria-label="Match score {{ fit.match_score }} percent">
+                <span>{{ fit.match_score }}<small>%</small></span>
+            </div>
+            <div class="d-flex flex-column gap-1">
+                <p class="m-0 fw-semibold">
+                    {% if fit.match_score >= 75 %}Strong match{% elif fit.match_score >= 50 %}Partial match{% else %}Weak match{% endif %}
+                </p>
+                <p class="m-0 ai-muted fs-sm">Required skills count double. Analysed {{ fit.created_text }}.</p>
+            </div>
+        </div>
+
+        <div class="ai-columns">
+            <div>
+                <h3 class="fs-md fw-bold">You have</h3>
+                <ul class="ai-req-list list-unstyled m-0">
+                    {% for requirement in requirements if requirement.has_skill %}
+                    <li class="is-met"><i class="bi bi-check-lg" aria-hidden="true"></i><div><strong>{{ requirement.skill }}</strong>{% if requirement.importance == 'nice_to_have' %} <span class="ai-tag">nice to have</span>{% endif %}<p>{{ requirement.evidence }}</p></div></li>
+                    {% else %}
+                    <li class="ai-muted">None of the listed skills yet.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div>
+                <h3 class="fs-md fw-bold">Missing</h3>
+                <ul class="ai-req-list list-unstyled m-0">
+                    {% for requirement in requirements if not requirement.has_skill %}
+                    <li class="is-gap"><i class="bi bi-dash-lg" aria-hidden="true"></i><div><strong>{{ requirement.skill }}</strong> <span class="ai-tag">{{ 'required' if requirement.importance == 'required' else 'nice to have' }}</span><p>{{ requirement.evidence }}</p></div></li>
+                    {% else %}
+                    <li class="ai-muted">Nothing missing.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        {% if fit.result.advice %}
+        <div>
+            <h3 class="fs-md fw-bold">What to do next</h3>
+            <ul class="m-0">{% for tip in fit.result.advice %}<li>{{ tip }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% elif no_requirements %}
+        <p class="m-0 ai-muted">The job advert doesn't list clear requirements to score against. Add the full advert text (Edit application) and the score appears here automatically.</p>
+        {% elif not can_analyse %}
+        <p class="m-0 ai-muted">Your match score and missing skills appear here automatically once the job advert and your CV or skills are added.</p>
+        {% endif %}
+    </section>
+
+    {# ---------- Interview prep (CAR-82) ---------- #}
+    <section id="prep" class="ai-card" aria-labelledby="prep-heading">
+        <h2 id="prep-heading" class="fs-lg fw-bold m-0">Interview prep</h2>
+        {{ job_note(prep_needed, 'the questions') }}
+
+        {% if prep %}
+        <p class="m-0 ai-muted fs-sm">
+            Made {{ prep.created_text }}{% if prep.result.interview_type %} for your {{ prep.result.interview_type }} interview{% endif %}. Open a question for why they ask it and how to answer.
+        </p>
+        {% for category in ('behavioural', 'role', 'company') %}
+        {% set questions = prep.result.questions|selectattr('category', 'equalto', category)|list %}
+        {% if questions %}
+        <div class="d-flex flex-column gap-2">
+            <h3 class="fs-md fw-bold m-0">{{ category_labels[category] }}</h3>
+            {% for question in questions %}
+            <details class="ai-question">
+                <summary>{{ question.question }}</summary>
+                <p><strong>Why they ask:</strong> {{ question.why_asked }}</p>
+                <p><strong>How to answer:</strong> {{ question.answer_tip }}</p>
+            </details>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if prep.result.questions_to_ask %}
+        <div>
+            <h3 class="fs-md fw-bold">Questions you can ask them</h3>
+            <ul class="m-0">{% for question in prep.result.questions_to_ask %}<li>{{ question }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+        {% endif %}
+    </section>
+
+    <p class="fs-sm ai-muted m-0">AI answers can be wrong. Check them against the job advert. Your CV and the advert are sent to Google Gemini to make these results.</p>
+</section>
+{% endblock %}

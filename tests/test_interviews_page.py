@@ -30,8 +30,9 @@ class InterviewsPageTests(unittest.TestCase):
             response = self.client.get('/tracker')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'/applications/501/interviews/new', response.data)
-        self.assertIn(b'id="practice"', response.data)
-        self.assertIn(b'id="practice-meta"', response.data)
+        # No AI key in this test, so the practice card says questions will come once AI is set up.
+        self.assertIn(b'Practice questions for Synthetic &lt;role&gt;', response.data)
+        self.assertIn(b'once AI features are set up', response.data)
         self.assertIn(b'Jul 09, 2026', response.data)
         self.assertNotIn(b'id="interviews-table"', response.data)
         self.assertIn(b'class="card interview-card"', response.data)

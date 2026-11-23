@@ -6,9 +6,12 @@ from db import DatabaseError, init_app
 from dotenv import load_dotenv
 from flask import Flask, abort, flash, g, jsonify, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, current_user, login_required, login_user, logout_user
+from werkzeug.exceptions import RequestEntityTooLarge
+
+from ai_routes import UPLOAD_ENDPOINTS, bp as ai_bp
 
 from services.csrf import clear_csrf_token, csrf_protect, init_app as init_csrf
-from services import application_service, interview_service, dashboard_service
+from services import ai_features, ai_service, application_service, interview_service, dashboard_service
 from services.interview_time import parse_dublin_datetime, utc_to_dublin
 
 from services.auth_service import (
@@ -22,7 +25,6 @@ from services.auth_service import (
 )
 from tracker_data import (
     DISPLAY_DATE,
-    PRACTICE_QUESTIONS,
     STATUS_THEMES,
     load_tracker_page,
     load_interviews_page,
@@ -58,6 +60,19 @@ app.config.update(
 )
 
 init_csrf(app)
+
+# AI features (ai_routes.py). Uploaded files may be up to 5 MB; the request
+# limit is a little higher to leave room for the rest of the form.
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024
+app.register_blueprint(ai_bp)
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def request_too_large(error):
+    if request.endpoint not in UPLOAD_ENDPOINTS:
+        return error  # Werkzeug's plain 413 page for anything that isn't a file upload
+    flash("That file is too large. Upload a file up to 5 MB.", "danger")
+    return redirect(url_for("ai.profile") if request.endpoint == "ai.upload_cv" else url_for("add_application"))
 
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -154,15 +169,22 @@ def tracker():
     except DatabaseError as error:
         flash(str(error), "danger")
         page = {"applications": [], "interviews": [], "has_more_interviews": False, "practice_meta": "",
+                "practice_questions": [], "practice_application_id": None,
                 "status_counts": {}, "total_applications": 0}
         status_code = 503
+    # Practice questions for the next interview are made in the background when missing.
+    practice_application_id = page.get("practice_application_id")
+    practice_job = ai_features.keep_up_to_date(
+        current_user_id(), practice_application_id,
+        needed=not page.get("practice_questions"), include_fit=False) if practice_application_id else None
     return render_template(
         "tracker.html",
         **page,
+        practice_job=practice_job,
+        ai_configured=ai_service.is_configured(),
         status=status,
         company=company,
         role=role,
-        practice_questions=PRACTICE_QUESTIONS,
         status_themes=STATUS_THEMES,
     ), status_code
 
@@ -215,6 +237,7 @@ def render_application_form(*, mode, form, action_url, application=None, errors=
     return render_template(
         "applications/form.html", mode=mode, form=form, errors=errors or {},
         application=application, action_url=action_url, cancel_url=url_for("tracker"),
+        ai_configured=ai_service.is_configured(),
         statuses=application_service.STATUSES,
         opportunity_types=application_service.OPPORTUNITY_TYPES,
         work_types=application_service.WORK_TYPES,

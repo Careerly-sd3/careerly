@@ -1,0 +1,106 @@
+{% extends "template.html" %}
+{#
+The user's CV and skills.
+Context: profile {cv_text, skills}, ai_configured, errors, skill_form (the skill typed before a failed add).
+#}
+{% block title %}Profile{% endblock %}
+{% block css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/auth.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/ai.css') }}">
+{% endblock %}
+
+{% set reading_cv = cv_job and cv_job.state == 'running' %}
+{# Reload every few seconds while the CV is read in the background #}
+{% block head %}{% if reading_cv %}<meta http-equiv="refresh" content="4">{% endif %}{% endblock %}
+
+{% block main %}
+<section class="ai-page d-flex flex-column gap-6">
+    <header class="d-flex flex-column gap-2">
+        <h1 class="fs-xl fw-bold m-0">Your profile</h1>
+        <p class="m-0 ai-muted">Your CV and skills power the match score, missing skills and interview prep on each application.</p>
+    </header>
+
+    {% if not ai_configured %}
+    <div class="alert theme-warning m-0">AI features are not set up yet. Add GEMINI_API_KEY to the .env file and restart the app. You can still add skills by hand.</div>
+    {% endif %}
+
+    <section class="ai-card" aria-labelledby="cv-heading">
+        <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-3">
+            <h2 id="cv-heading" class="fs-lg fw-bold m-0"><i class="bi bi-file-earmark-person" aria-hidden="true"></i> CV</h2>
+            {% if profile.cv_text %}
+            <span class="ai-pill ai-pill-good"><i class="bi bi-check2" aria-hidden="true"></i> Saved</span>
+            {% else %}
+            <span class="ai-pill">Not uploaded</span>
+            {% endif %}
+        </div>
+
+        {% if reading_cv %}
+        <p class="ai-note m-0" role="status"><i class="bi bi-hourglass-split" aria-hidden="true"></i>
+            Reading your CV… Your skills will appear below in a moment. You can keep using Careerly meanwhile.</p>
+        {% elif cv_job and cv_job.state == 'failed' %}
+        <p class="auth-error m-0" role="alert">Couldn't read your CV: {{ cv_job.message }}</p>
+        {% elif cv_job and cv_job.state == 'done' %}
+        <p class="ai-note m-0" role="status"><i class="bi bi-check2" aria-hidden="true"></i> {{ cv_job.message }}</p>
+        {% endif %}
+
+        {% if profile.cv_text %}
+        <details class="ai-cv-text">
+            <summary>Show the text we read from your CV</summary>
+            <pre>{{ profile.cv_text }}</pre>
+        </details>
+        {% endif %}
+
+        {% if not reading_cv %}
+        <form method="post" action="{{ url_for('ai.upload_cv') }}" enctype="multipart/form-data" class="d-flex flex-column gap-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="auth-field">
+                <label for="cv-file">{{ 'Replace your CV' if profile.cv_text else 'Upload your CV' }} <span class="fs-sm">(PDF, up to 5 MB)</span></label>
+                <input id="cv-file" name="cv" type="file" accept="application/pdf" required aria-describedby="cv-privacy">
+            </div>
+            <p id="cv-privacy" class="fs-sm m-0 ai-muted">
+                Your CV is sent to Google Gemini to read the text and skills. We save the text and skills, not the file.
+                Uploading a new CV replaces the skills found in the old one; skills you added yourself stay.
+            </p>
+            <button type="submit" class="btn-solid theme-inverse align-self-start"{% if not ai_configured %} disabled{% endif %}>
+                <i class="bi bi-upload" aria-hidden="true"></i> {{ 'Replace CV' if profile.cv_text else 'Upload CV' }}
+            </button>
+        </form>
+        {% endif %}
+    </section>
+
+    <section class="ai-card" aria-labelledby="skills-heading">
+        <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-3">
+            <h2 id="skills-heading" class="fs-lg fw-bold m-0"><i class="bi bi-tools" aria-hidden="true"></i> Skills</h2>
+            <span class="ai-muted fs-sm">{{ profile.skills|length }} skill{{ '' if profile.skills|length == 1 else 's' }}</span>
+        </div>
+
+        {% if profile.skills %}
+        <ul class="ai-skill-list list-unstyled m-0" aria-label="Your skills">
+            {% for skill in profile.skills %}
+            <li class="ai-skill">
+                <span>{{ skill.skill_name }}</span>
+                <span class="ai-skill-source" title="{{ 'Found in your CV' if skill.source == 'ai_extracted' else 'Added by you' }}">{{ 'CV' if skill.source == 'ai_extracted' else 'You' }}</span>
+                <form method="post" action="{{ url_for('ai.delete_skill', skill_id=skill.user_skill_id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="ai-skill-remove" aria-label="Remove {{ skill.skill_name }}" title="Remove"><i class="bi bi-x" aria-hidden="true"></i></button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="m-0 ai-muted">No skills yet. Upload your CV, or add skills below.</p>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('ai.add_skill') }}" class="ai-inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="auth-field flex-grow-1">
+                <label for="skill-name">Add a skill</label>
+                <input id="skill-name" name="skill_name" maxlength="100" required value="{{ skill_form }}" placeholder="e.g. Python"
+                    {% if errors.get('skill_name') %}aria-invalid="true" aria-describedby="skill-name-error"{% endif %}>
+                {% if errors.get('skill_name') %}<p id="skill-name-error" class="auth-error">{{ errors.skill_name }}</p>{% endif %}
+            </div>
+            <button type="submit" class="btn-outline theme-inverse"><i class="bi bi-plus-lg" aria-hidden="true"></i> Add</button>
+        </form>
+    </section>
+</section>
+{% endblock %}

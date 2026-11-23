@@ -4,7 +4,7 @@ Never loads .env, connects to a pre-existing server, or uses developer records.
 Requires existing mysqld and OpenSSL executables; installs nothing.
 """
 import argparse
-from datetime import datetime
+from datetime import date, datetime
 import os
 from pathlib import Path
 import re
@@ -23,6 +23,184 @@ def run(args):
     # Never echo commands, credentials, generated keys, or raw subprocess errors.
     subprocess.run(args, check=True, stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL, timeout=90)
+
+
+def check_deadline_routes(db_app, check):
+    from db import get_db
+
+    with (patch('dotenv.load_dotenv', return_value=False),
+          patch.dict(os.environ, SECRET_KEY='synthetic-deadline-route-key')):
+        from app import app
+
+    def snapshot():
+        with db_app.app_context():
+            cursor = get_db().cursor(dictionary=True, buffered=True)
+            try:
+                cursor.execute('SELECT * FROM JobApplication ORDER BY application_id')
+                applications = cursor.fetchall()
+                cursor.execute('SELECT * FROM Company ORDER BY company_id')
+                return applications, cursor.fetchall()
+            finally:
+                cursor.close()
+
+    # All database reads and writes use the harness's verified loopback server.
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session.update(_user_id='1', _fresh=True, _csrf_token='synthetic-deadline-token')
+    add_url = '/applications/new'
+    form = dict(csrf_token='synthetic-deadline-token', company='Deadline verification',
+                job_title='Synthetic deadline role', opportunity_type='internship',
+                status='Applied', work_type='hybrid', location='Dublin',
+                job_url='https://example.invalid/role', salary_text='Synthetic salary',
+                job_ad_text='Synthetic job advert', applied_at='2026-07-10')
+    original = snapshot()
+    response = client.post(add_url, data=form | {'closing_date': '2026-07-09'})
+    check(response.status_code == 400 and b'Closing date cannot be earlier' in response.data
+          and b'name="closing_date" type="date" value="2026-07-09"' in response.data
+          and snapshot() == original, 'deadline create rejects reversal and leaves applications and companies intact')
+
+    response = client.post(add_url, data=form | {'closing_date': '2026-07-10'})
+    applications, _ = snapshot()
+    created = next(row for row in applications if row['job_title'] == form['job_title'])
+    edit_url = f"/applications/{created['application_id']}/edit"
+    reopened = client.get(edit_url)
+    check(response.status_code == 302 and reopened.status_code == 200
+          and created['applied_at'] == created['closing_date'] == date(2026, 7, 10)
+          and b'name="closing_date" type="date" value="2026-07-10"' in reopened.data
+          and b'name="applied_at" type="date" value="2026-07-10"' in reopened.data,
+          'deadline equality persists on create and prefills the edit form')
+
+    notes_url = f"/applications/{created['application_id']}/notes"
+    response = client.post(notes_url, data=dict(csrf_token=form['csrf_token'], notes='Keep these notes'))
+    check(response.status_code == 200, 'deadline fixture saves notes through the existing route')
+    before_edit = snapshot()
+    response = client.post(edit_url, data=form | {
+        'closing_date': '2026-07-09', 'location': 'Do not save this location'})
+    check(response.status_code == 400 and b'Closing date cannot be earlier' in response.data
+          and b'name="closing_date" type="date" value="2026-07-09"' in response.data
+          and b'Do not save this location' in response.data and snapshot() == before_edit,
+          'deadline edit rejects reversal, retains form values and leaves persisted rows intact')
+
+    response = client.post(edit_url, data=form | {'closing_date': '2026-07-13'})
+    after_edit, companies = snapshot()
+    previous = next(row for row in before_edit[0] if row['application_id'] == created['application_id'])
+    edited = next(row for row in after_edit if row['application_id'] == created['application_id'])
+    reopened = client.get(edit_url)
+    check(response.status_code == 302 and reopened.status_code == 200
+          and edited == previous | {'closing_date': date(2026, 7, 13), 'updated_at': edited['updated_at']}
+          and companies == before_edit[1]
+          and b'name="closing_date" type="date" value="2026-07-13"' in reopened.data
+          and b'name="applied_at" type="date" value="2026-07-10"' in reopened.data,
+          'corrected edit persists and reopens with notes and other fields intact')
+
+    with patch('tracker_data._now_utc', return_value=datetime(2026, 7, 9, 23)):
+        default = client.get('/tracker')
+        sorted_page = client.get('/tracker?sort=closing_date')
+    marker = f'id="details-{created["application_id"]}"'.encode()
+    check(default.status_code == sorted_page.status_code == 200
+          and default.data.index(b'id="details-1"') < default.data.index(marker)
+          and sorted_page.data.index(marker) < sorted_page.data.index(b'id="details-1"')
+          and b'id="details-2"' not in sorted_page.data
+          and b'theme-warning">3 days left</span>' in sorted_page.data,
+          'real Tracker route sorts against NULL dates and renders the Dublin-local badge for the owner')
+
+
+def check_follow_up_routes(check):
+    from app import app
+    from mysql.connector import OperationalError
+    from orm_db import get_engine, operation_session
+    from sqlalchemy import select
+    from models import JobApplication
+    from services import application_service, dashboard_service
+
+    client = app.test_client()
+    with client.session_transaction() as session:
+        session.update(_user_id='1', _fresh=True, _csrf_token='follow-up-test')
+    form = dict(csrf_token='follow-up-test', company='Follow-up fixture', job_title='Same day follow-up',
+                opportunity_type='internship', status='Applied', applied_at='2026-07-10')
+    add = '/applications/new'
+    for value in ('2026-07-09', '2026-02-30'):
+        response = client.post(add, data=form | {'follow_up_date': value})
+        check(response.status_code == 400 and f'value="{value}"'.encode() in response.data,
+              'invalid follow-up create retains input')
+    with app.app_context():
+        engine = get_engine()
+        with operation_session(read_only=True) as session:
+            check(session.execute(select(JobApplication.application_id).where(
+                JobApplication.job_title == form['job_title'])).first() is None,
+                'invalid creates persist no application')
+    check(client.post(add, data=form | {'follow_up_date': '2026-07-10'}).status_code == 302,
+          'follow-up equality saves on create')
+    with app.app_context():
+        with operation_session(read_only=True) as session:
+            identity = session.execute(select(JobApplication.application_id).where(
+                JobApplication.job_title == form['job_title'])).scalar_one()
+
+    def read():
+        with app.app_context():
+            return application_service.get_application(1, identity)
+
+    edit = f'/applications/{identity}/edit'
+    original = read()
+    check(original['follow_up_date'] == date(2026, 7, 10)
+          and b'name="follow_up_date" type="date" value="2026-07-10"' in client.get(edit).data,
+          'follow-up persists and prefills on reopen')
+    check(client.post(edit, data=form | {'follow_up_date': '2026-07-09'}).status_code == 400
+          and read() == original, 'invalid follow-up edit leaves the row intact')
+    with patch.object(engine.dialect, 'do_commit', side_effect=OperationalError('synthetic commit failure', errno=2013)):
+        failed = client.post(edit, data=form | {'follow_up_date': '2026-07-11'})
+    check(failed.status_code == 503 and b'value="2026-07-11"' in failed.data and read() == original,
+          'failed follow-up commit rolls back the edit and retains the submitted date')
+    with patch('services.application_service._now_utc', return_value=datetime(2026, 7, 11)):
+        check(client.post(edit, data=form | {'follow_up_date': '2026-07-10'}).status_code == 302
+              and read() == original, 'unchanged follow-up edit preserves timestamp and row')
+    cleared_response = client.post(edit, data=form | {'follow_up_date': ''})
+    cleared = read()
+    check(cleared_response.status_code == 302
+          and cleared == original | {'follow_up_date': None, 'updated_at': cleared['updated_at']}
+          and b'name="follow_up_date" type="date" value=""' in client.get(edit).data,
+          'blank follow-up clears only the date and prefills an empty input on reopen')
+    check(client.post(edit, data=form | {'follow_up_date': '2026-07-10'}).status_code == 302
+          and read()['follow_up_date'] == date(2026, 7, 10), 'edit persists a new follow-up value')
+    check(client.get('/applications/2/edit').status_code == 404
+          and client.post('/applications/2/edit', data=form).status_code == 404
+          and client.post(edit, data={}).status_code == 400
+          and client.post(add, data={}).status_code == 400, 'create and edit still enforce CSRF and edit ownership')
+
+    fixtures = (
+        ('Yesterday follow-up', '2026-07-09', 'Saved', 1),
+        ('Tie follow-up', '2026-07-10', 'Saved', 1),
+        ('Offer follow-up', '2026-07-17', 'Offer', 1),
+        ('Out of range follow-up', '2026-07-18', 'Saved', 1),
+        ('Rejected follow-up', '2026-07-10', 'Rejected', 1),
+        ('Withdrawn follow-up', '2026-07-10', 'Withdrawn', 1),
+        ('Foreign follow-up', '2026-07-10', 'Saved', 2),
+    )
+    with app.app_context():
+        for title, follow_up, status, user_id in fixtures:
+            application_service.create_application(user_id, company='Follow-up fixture', job_title=title,
+                                                   opportunity_type='internship', status=status,
+                                                   follow_up_date=follow_up)
+    interview = dict(csrf_token=form['csrf_token'], date='2026-07-10', time='14:00', interview_type='online')
+    check(client.post(f'/applications/{identity}/interviews/new', data=interview).status_code == 302,
+          'synthetic follow-up fixture also has an upcoming interview')
+    with patch.object(dashboard_service, 'datetime') as clock:
+        clock.now.return_value = datetime(2026, 7, 9, 23)
+        dashboard = client.get('/dashboard')
+    html = dashboard.get_data(as_text=True).split('UPCOMING', 1)[-1].split('RECENT APPLICATIONS', 1)[0]
+    names = ['Same day follow-up', 'Tie follow-up', 'Offer follow-up']
+    check(dashboard.status_code == 200 and all(name in html for name in names)
+          and html.index(names[0]) < html.index(names[1]) < html.index('Interview · Online') < html.index(names[2])
+          and html.count(' · Follow-up') == 3
+          and all(title not in html for title, _, _, _ in fixtures if title not in names),
+          'combined Dashboard includes Dublin today and +7, stable ties, Offer and interviews for the owner')
+    link = f'/tracker#details-{identity}'
+    tracker = client.get('/tracker')
+    check(f'href="{link}"' in html and f'id="details-{identity}"'.encode() in tracker.data
+          and b'id="details-2"' not in tracker.data
+          and b'<dt>Follow-up</dt><dd>Jul 10, 2026</dd>' in tracker.data
+          and '<dt>Follow-up</dt><dd>—</dd>'.encode() in tracker.data,
+          'Dashboard links to the owned Tracker details with a formatted follow-up date')
 
 
 def main():
@@ -115,6 +293,22 @@ def main():
             for owner in (1, 2):
                 cursor.execute('INSERT INTO JobApplication (user_id,company_id,job_title,opportunity_type,notes,created_at,updated_at) VALUES (%s,1,%s,%s,%s,%s,%s)', (owner, 'Synthetic role', 'internship', 'initial', now, now))
             connection.commit()
+            cursor.execute('SELECT * FROM JobApplication ORDER BY application_id')
+            original_applications = cursor.fetchall()
+            cursor.execute('SHOW CREATE TABLE `JobApplication`')
+            original_definition = cursor.fetchone()[1]
+            migration = (ROOT/'database/migrations/002_application_follow_up_date.sql').read_text(encoding='utf-8')
+            cursor.execute(migration)
+            cursor.execute('SELECT * FROM JobApplication ORDER BY application_id')
+            check(cursor.fetchall() == [row + (None,) for row in original_applications],
+                  'migration 002 preserves existing applications and defaults follow-ups to NULL')
+            cursor.execute('SHOW CREATE TABLE `JobApplication`')
+            migrated_definition = cursor.fetchone()[1]
+            check(re.sub(r'^  `follow_up_date` date DEFAULT NULL,\n', '', migrated_definition, flags=re.M)
+                  == original_definition, 'migration 002 preserves the existing application table definition and constraints')
+            from database.verify_schema import SchemaChecks
+            SchemaChecks(cursor).preflight()
+            check(True, 'schema preflight confirms 45 columns and nullable follow-up date')
             cursor.close()
             connection.close()
             connection = None
@@ -311,6 +505,10 @@ def main():
                 stage = 'synthetic interview and Tracker ORM integration'
                 from integration_interviews import run_checks
                 run_checks(app, check, now)
+                stage = 'synthetic deadline create, edit and Tracker routes'
+                check_deadline_routes(app, check)
+                stage = 'synthetic follow-up persistence and Dashboard routes'
+                check_follow_up_routes(check)
             print('Result: '+str(passed)+' isolated checks passed', flush=True)
         except Exception as error:
             print('FAIL: '+stage+'; '+type(error).__name__+'; errno='+str(getattr(error, 'errno', None))+'; SQLSTATE='+str(getattr(error, 'sqlstate', None))+'; details suppressed', flush=True)

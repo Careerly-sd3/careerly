@@ -279,7 +279,7 @@ class AddInterviewTests(unittest.TestCase):
         self.database.applications.clear()
         response = self.client.get('/tracker')
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b'Interviews are added from an existing application.', response.data)
+        self.assertIn(b'Add an interview from an application.', response.data)
 
 
 class InterviewTimeTests(unittest.TestCase):

@@ -52,7 +52,7 @@ def _applications_statement(user_id):
     return (select(
                 JobApplication.application_id, Company.name.label("company"),
                 JobApplication.job_title, JobApplication.status, JobApplication.applied_at,
-                JobApplication.closing_date, JobApplication.created_at, JobApplication.location,
+                JobApplication.closing_date, JobApplication.follow_up_date, JobApplication.created_at, JobApplication.location,
                 JobApplication.work_type, JobApplication.opportunity_type,
                 JobApplication.salary_text, JobApplication.job_url, JobApplication.notes,
                 JobApplication.updated_at, Company.website_url)
@@ -153,6 +153,8 @@ def _facts(application):
     facts = [{"label": label, "value": value} for label, value in values if value]
     if application.get("closing_date"):
         facts.append({"label": "Closing date", "value": application["closing_date"].strftime(DISPLAY_DATE)})
+    follow_up_date = application.get("follow_up_date")
+    facts.append({"label": "Follow-up", "value": follow_up_date.strftime(DISPLAY_DATE) if follow_up_date else "—"})
     return facts
 
 
@@ -173,18 +175,46 @@ def _updated_text(application):
     return utc_to_dublin(updated_at).strftime(DISPLAY_DATE) if updated_at else ""
 
 
+def _deadline_warning(closing_date, today):
+    if closing_date is None:
+        return None
+    days_left = (closing_date - today).days
+    if days_left < 0:
+        text = "Overdue"
+    elif days_left == 0:
+        text = "Due today"
+    elif days_left == 1:
+        text = "1 day left"
+    else:
+        text = f"{days_left} days left"
+
+    theme = "success"
+    if days_left <= 2:
+        theme = "danger"
+    elif days_left <= 7:
+        theme = "warning"
+    return {"days_left": days_left, "text": text, "theme": theme}
+
+
 def _application_rows(applications, interviews, cutoff=None):
     cutoff = cutoff or _now_utc()
+    today = utc_to_dublin(cutoff).date()
     rows = []
     for application in applications:
         own_interviews = [interview for interview in interviews
                           if interview["application_id"] == application["application_id"]]
         next_step, next_date = _next_step(application, own_interviews)
+        closing_date = application["closing_date"]
+        warning = None
+        if application["status"] not in ("Offer", "Rejected", "Withdrawn"):
+            warning = _deadline_warning(closing_date, today)
         rows.append({
             "application_id": application["application_id"],
             "company": application["company"],
             "job_title": application["job_title"],
             "applied_at": application["applied_at"],
+            "closing_date": closing_date,
+            "deadline_warning": warning,
             "status": application["status"],
             "next_step": next_step,
             "next_date": next_date,
@@ -281,7 +311,12 @@ def _options(rows, key):
     return sorted({row[key] for row in rows}, key=str.casefold)
 
 
-def load_tracker_page(user_id, status="", company="", role=""):
+def _closing_date_sort_key(row):
+    closing_date = row["closing_date"]
+    return closing_date is None, closing_date, row["application_id"]
+
+
+def load_tracker_page(user_id, status="", company="", role="", sort=""):
     """Everything the tracker page shows for one user, from one read transaction.
 
     The filters only narrow the applications table. The status tiles, the total and
@@ -308,8 +343,11 @@ def load_tracker_page(user_id, status="", company="", role=""):
     cards = _interview_rows(interviews, cutoff)
     upcoming = [card for card in cards if not card["is_past"]][:VISIBLE_INTERVIEWS]
     rows = _application_rows(applications, interviews, cutoff)
+    filtered_rows = _filter_rows(rows, status, company, role)
+    if sort == "closing_date":
+        filtered_rows.sort(key=_closing_date_sort_key)
     return {
-        "applications": _filter_rows(rows, status, company, role),
+        "applications": filtered_rows,
         "total_applications": len(applications),
         "company_options": _options(rows, "company"),
         "role_options": _options(rows, "job_title"),

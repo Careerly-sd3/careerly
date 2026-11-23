@@ -149,7 +149,7 @@ def dashboard():
             "interview_types": [],
             "top_companies": [],
             "response_rate": {"responded": 0, "total": 0, "rate": 0},
-            "upcoming_interviews": [],
+            "upcoming": [],
             "recent_applications": [],
             "work_type_breakdown": [],
         }
@@ -164,8 +164,9 @@ def tracker():
     status = request.args.get("status", "")
     company = request.args.get("company", "")
     role = request.args.get("role", "")
+    sort = "closing_date" if request.args.get("sort") == "closing_date" else ""
     try:
-        page = load_tracker_page(current_user_id(), status=status, company=company, role=role)
+        page = load_tracker_page(current_user_id(), status=status, company=company, role=role, sort=sort)
     except DatabaseError as error:
         flash(str(error), "danger")
         page = {"applications": [], "interviews": [], "has_more_interviews": False, "practice_meta": "",
@@ -185,6 +186,7 @@ def tracker():
         status=status,
         company=company,
         role=role,
+        sort=sort,
         status_themes=STATUS_THEMES,
     ), status_code
 
@@ -216,7 +218,7 @@ def save_application_notes(application_id):
 # logged-in user, and ids only from the address, never from the form.
 APPLICATION_FIELDS = (
     "company", "job_title", "opportunity_type", "work_type", "status", "location",
-    "job_url", "closing_date", "applied_at", "salary_text", "job_ad_text",
+    "job_url", "closing_date", "applied_at", "follow_up_date", "salary_text", "job_ad_text",
 )
 
 

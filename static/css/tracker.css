@@ -173,6 +173,10 @@ body:has(> main > .interviews-page) > footer {
    header: both get Bootstrap's sticky z-index and the heading comes later, so it would paint on top. */
 .applications-table > thead { z-index: 1; }
 
+/* Darken deadline text against Bootstrap's light subtle badge backgrounds. */
+.badge.deadline-warning.theme-warning { color: #694400; }
+.badge.deadline-warning.theme-success { color: #16512b; }
+
 /* Row buttons (Details, Add interview, Edit, Delete) wrap on phones and tablets,
    but stay on one line on desktop. */
 .row-actions { flex-wrap: wrap; }

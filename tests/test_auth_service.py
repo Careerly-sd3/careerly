@@ -330,7 +330,7 @@ class AuthServiceTests(unittest.TestCase):
         self.session.execute.side_effect = self.execute
         with patch.object(module, 'load_tracker_page', return_value=dict(applications=[], interviews=[], has_more_interviews=False, practice_meta='', status_counts={}, total_applications=0)) as tracker:
             self.assertEqual(client.get('/tracker').status_code, 200)
-            tracker.assert_called_once_with(873, status='', company='', role='')
+            tracker.assert_called_once_with(873, status='', company='', role='', sort='')
 
     def test_schema_diagnostic_is_read_only_and_parameterised(self):
         diagnostic = importlib.import_module('db_check')

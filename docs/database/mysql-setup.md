@@ -104,6 +104,8 @@ Execution and table verification below were reported by the user. Exact executio
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 001 | `database/migrations/001_initial_schema.sql` | Not recorded | 3 November 2026 | Not recorded | Hosted Aiven MySQL / `careerly` | Executed manually in MySQL Workbench (user-reported) | `SHOW TABLES` confirms `User`, `UserSkill`, `Company`, `JobApplication`, `Interview` and `AIAnalysis`. |
 
+The user reports applying migration 002 to the shared `careerly` schema through Workbench. See the [CAR-69 migration evidence and verification limits](../follow-up-dates.md).
+
 Table existence alone does not verify columns, keys, defaults or constraint enforcement. The subsequent successful hosted CAR-158 verification is recorded below.
 
 ## Flask connection setup on Windows PowerShell (CAR-157)

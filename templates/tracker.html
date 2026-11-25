@@ -5,6 +5,7 @@
 
 {# The Details / Notes / Interviews / History panels under each row (CAR-63) #}
 {% from "tracker/_details.html" import date_text, details_row, notes_form %}
+{% from "_interview_results.html" import awaiting_results_banner with context %}
 
 {% macro status_badge(status) -%}
 <span class="badge badge-subtle theme-{{ status_themes[status] }}">{{ status }}</span>
@@ -12,6 +13,13 @@
 
 {% macro row_actions(application) -%}
 <div class="row-actions d-flex gap-1">
+    {# Posts the hidden star-form below the table (forms cannot nest) #}
+    <button type="submit" form="star-form" formaction="{{ url_for('star_application', application_id=application.application_id) }}"
+        name="starred" value="{{ '0' if application.starred else '1' }}" aria-pressed="{{ 'true' if application.starred else 'false' }}"
+        class="btn btn-subtle btn-icon btn-sm theme-warning" aria-label="Star {{ application.company }} application"
+        title="{{ 'Unstar' if application.starred else 'Star' }} application">
+        <i class="bi {{ 'bi-star-fill' if application.starred else 'bi-star' }}" aria-hidden="true"></i>
+    </button>
     <button type="button" class="btn btn-subtle btn-sm theme-secondary" aria-controls="details-{{ application.application_id }}" aria-expanded="false" data-details-toggle>
         <i class="bi bi-chevron-down" aria-hidden="true"></i> Details
     </button>
@@ -134,16 +142,11 @@
     {%- endmacro %}
 
     <form method="get" action="{{ url_for('tracker') }}" class="d-flex flex-column gap-2">
-        <div class="d-flex flex-wrap align-items-center gap-2">
-            <label for="application-sort">Sort by</label>
-            <select id="application-sort" name="sort" data-auto-submit>
-                <option value=""{% if not sort %} selected{% endif %}>Default order</option>
-                <option value="closing_date"{% if sort == 'closing_date' %} selected{% endif %}>Closing date</option>
-            </select>
-            {% if status or company or role %}
-            <a href="{{ url_for('tracker', sort=sort) if sort else url_for('tracker') }}" class="fs-sm">Clear filters</a>
-            {% endif %}
+        {% if status or company or role or starred %}
+        <div>
+            <a href="{{ url_for('tracker') }}" class="fs-sm">Clear filters</a>
         </div>
+        {% endif %}
 
         {# Applications table: about 5 rows tall, then it scrolls (cards on phones) #}
         <div class="table-card applications-card mb-0" data-bs-theme="light">
@@ -156,7 +159,19 @@
                             <th scope="col">Applied</th>
                             <th scope="col">{{ filter_heading('status', 'Status', 'All statuses', status_themes, status) }}</th>
                             <th scope="col">Next Step</th>
-                            <th scope="col">Actions</th>
+                            <th scope="col">
+                                <div class="d-flex align-items-center justify-content-between gap-3">
+                                    <span class="actions-head-label">Actions</span>
+                                    <label class="filter-head{% if starred %} is-active{% endif %}">
+                                        <i class="bi {{ 'bi-star-fill' if starred else 'bi-star' }} fs-xs" aria-hidden="true"></i>
+                                        {{ 'Starred' if starred else 'All' }} <i class="bi bi-chevron-down fs-xs" aria-hidden="true"></i>
+                                        <select name="starred" aria-label="Show starred applications" data-auto-submit>
+                                            <option value="">All applications</option>
+                                            <option value="1"{% if starred %} selected{% endif %}>Starred only</option>
+                                        </select>
+                                    </label>
+                                </div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -189,6 +204,10 @@
     {# The Notes editors post through these; they live out here because forms cannot nest.
        One hidden box, so they add no gaps to the page (the fields join them with form="..."). #}
     <div class="notes-forms" hidden>{% for application in applications %}{{ notes_form(application) }}{% endfor %}</div>
+    <form id="star-form" method="post" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+    </form>
     {% else %}
     {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet. Click + Add Application to add your first one.") }}
     {% endif %}
@@ -273,6 +292,8 @@
 
     </div>
 </section>
+
+{{ awaiting_results_banner(awaiting_results) }}
 
 <script src="{{ url_for('static', filename='js/tracker.js') }}"></script>
 {% endblock %}

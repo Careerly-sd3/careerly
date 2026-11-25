@@ -220,7 +220,7 @@ class DatabaseTests(unittest.TestCase):
                 session["_user_id"] = user.get_id()
                 session["_fresh"] = True
             self.assertEqual(client.get("/tracker").status_code, 200)
-            tracker.assert_called_once_with(user.id, status="", company="", role="", sort="")
+            tracker.assert_called_once_with(user.id, status="", company="", role="", starred=False)
         self.connect.assert_not_called()
 
 

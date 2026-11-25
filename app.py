@@ -150,6 +150,7 @@ def dashboard():
             "top_companies": [],
             "response_rate": {"responded": 0, "total": 0, "rate": 0},
             "upcoming": [],
+            "awaiting_results": [],
             "recent_applications": [],
             "work_type_breakdown": [],
         }
@@ -164,13 +165,13 @@ def tracker():
     status = request.args.get("status", "")
     company = request.args.get("company", "")
     role = request.args.get("role", "")
-    sort = "closing_date" if request.args.get("sort") == "closing_date" else ""
+    starred = request.args.get("starred") == "1"
     try:
-        page = load_tracker_page(current_user_id(), status=status, company=company, role=role, sort=sort)
+        page = load_tracker_page(current_user_id(), status=status, company=company, role=role, starred=starred)
     except DatabaseError as error:
         flash(str(error), "danger")
         page = {"applications": [], "interviews": [], "has_more_interviews": False, "practice_meta": "",
-                "practice_questions": [], "practice_application_id": None,
+                "practice_questions": [], "practice_application_id": None, "awaiting_results": [],
                 "status_counts": {}, "total_applications": 0}
         status_code = 503
     # Practice questions for the next interview are made in the background when missing.
@@ -186,7 +187,7 @@ def tracker():
         status=status,
         company=company,
         role=role,
-        sort=sort,
+        starred=starred,
         status_themes=STATUS_THEMES,
     ), status_code
 
@@ -213,12 +214,49 @@ def save_application_notes(application_id):
     return jsonify(notes=saved["notes"] or "",
                    updated_text=utc_to_dublin(saved["updated_at"]).strftime(DISPLAY_DATE))
 
+@app.post("/applications/<int:application_id>/star")
+@login_required
+@csrf_protect
+def star_application(application_id):
+    """Star (starred=1) or unstar an application, then go back to the page it came from."""
+    try:
+        application_service.set_starred(
+            current_user_id(), application_id, request.form.get("starred") == "1")
+    except (application_service.ApplicationNotFound, application_service.ApplicationValidationError):
+        abort(404)
+    except DatabaseError:
+        flash("Could not update the star. Please try again.", "danger")
+    return redirect(safe_next_url(request.form.get("next")) or url_for("tracker"))
+
+
+@app.post("/interviews/<int:interview_id>/result")
+@login_required
+@csrf_protect
+def record_interview_result(interview_id):
+    """The "How did it go?" banner: save Passed or Failed for a past interview."""
+    outcome = request.form.get("outcome")
+    try:
+        interview_service.record_result(current_user_id(), interview_id, outcome)
+    except interview_service.InterviewNotFound:
+        abort(404)
+    except interview_service.InterviewValidationError as error:
+        if "outcome" not in error.errors:
+            abort(404)  # an out-of-range id in the address is simply not one of the user's
+        abort(400)
+    except DatabaseError:
+        flash("Could not save the interview result. Please try again.", "danger")
+    else:
+        flash("Interview result saved." + (" The application is now Rejected." if outcome == "Failed" else ""),
+              "success")
+    return redirect(safe_next_url(request.form.get("next")) or url_for("tracker"))
+
+
 # ---- CAR-54: add, edit and delete an application ----
 # The only form fields the routes accept. The owner always comes from the
 # logged-in user, and ids only from the address, never from the form.
 APPLICATION_FIELDS = (
     "company", "job_title", "opportunity_type", "work_type", "status", "location",
-    "job_url", "closing_date", "applied_at", "follow_up_date", "salary_text", "job_ad_text",
+    "job_url", "closing_date", "applied_at", "salary_text", "job_ad_text",
 )
 
 

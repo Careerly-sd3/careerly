@@ -1,5 +1,5 @@
 """Relocation regressions: real requests/services, synthetic database only."""
-from datetime import datetime, timezone
+from datetime import datetime
 import re
 import unittest
 from unittest.mock import patch
@@ -25,8 +25,7 @@ class InterviewsPageTests(unittest.TestCase):
 
     def test_tracker_retains_application_entry_point_next_step_and_practice(self):
         self.database.applications[501]['status'] = 'Interview'
-        with patch('tracker_data.datetime') as clock:
-            clock.now.return_value = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        with patch('tracker_data._now_utc', return_value=datetime(2026, 7, 1)):
             response = self.client.get('/tracker')
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'/applications/501/interviews/new', response.data)

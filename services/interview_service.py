@@ -11,6 +11,7 @@ from sqlalchemy import select, update, delete, case, bindparam
 from db import DatabaseError
 from models import JobApplication, Company, Interview
 from orm_db import operation_session, TransactionConflict
+from services.common import is_valid_id, now_utc
 
 
 INTERVIEW_TYPES = ("online", "phone", "technical", "onsite")
@@ -38,7 +39,7 @@ class InterviewTransactionError(DatabaseError):
 
 
 def _validate_id(value, field):
-    if type(value) is not int or not 1 <= value <= 2147483647:
+    if not is_valid_id(value):
         raise InterviewValidationError({field: "A positive persisted integer ID is required."})
 
 
@@ -170,7 +171,7 @@ def _list_interviews(session, user_id, *, cutoff):
 def list_interviews(user_id, *, cutoff=None):
     """UTC upcoming ascending, past descending, then interview_id ascending."""
     _validate_id(user_id, "user_id")
-    cutoff = _utc(datetime.now(timezone.utc) if cutoff is None else cutoff, "cutoff")
+    cutoff = _utc(now_utc() if cutoff is None else cutoff, "cutoff")
     with operation_session(read_only=True, error_message="Could not load your interviews.") as session:
         result = _list_interviews(session, user_id, cutoff=cutoff)
     return result
@@ -205,7 +206,7 @@ def create_interview(user_id, application_id, *, scheduled_at, interview_type,
         record = Interview(application_id=parent["application_id"], **fields)
         session.add(record)
         session.flush()
-        if type(record.interview_id) is not int or not 1 <= record.interview_id <= 2147483647:
+        if not is_valid_id(record.interview_id):
             raise DatabaseError("Interview creation did not return a valid persisted ID.")
         return _owned_interview(session, user_id, record.interview_id)
     return _write(operation)
@@ -252,4 +253,29 @@ def update_interview_notes(user_id, interview_id, *, notes):
         session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id)).values(notes=notes),
                         execution_options={"synchronize_session": False})
         return _owned_interview(session, user_id, interview_id)
+    return _write(operation)
+
+
+RESULT_OUTCOMES = ("Passed", "Failed")
+
+
+def record_result(user_id, interview_id, outcome, *, now=None):
+    """Save how an interview went. Failed also marks the application Rejected."""
+    _validate_id(user_id, "user_id")
+    _validate_id(interview_id, "interview_id")
+    if outcome not in RESULT_OUTCOMES:
+        raise InterviewValidationError({"outcome": "Choose Passed or Failed."})
+
+    def operation(session):
+        interview = _owned_interview(session, user_id, interview_id, lock=True)
+        session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id))
+                        .values(outcome=outcome),
+                        execution_options={"synchronize_session": False})
+        if outcome == "Failed":
+            updated_at = now or now_utc()
+            session.execute(update(JobApplication)
+                            .where(JobApplication.application_id == interview["application_id"],
+                                   JobApplication.user_id == user_id)
+                            .values(status="Rejected", updated_at=updated_at),
+                            execution_options={"synchronize_session": False})
     return _write(operation)

@@ -1,11 +1,11 @@
 from datetime import datetime, timedelta, timezone
-from flask import url_for
 from sqlalchemy import case, desc, func, select
 from models import Company, Interview, JobApplication
 from orm_db import operation_session
 from services.interview_time import utc_to_dublin
+from services.application_service import STATUSES
+from services.common import now_utc as _now_utc
 
-STATUS_ORDER = ("Saved", "Applied", "Interview", "Offer", "Rejected", "Withdrawn")
 OUTCOME_ORDER = ("Passed", "Failed", "Pending")
 
 
@@ -17,7 +17,7 @@ def _status_counts(session, user_id):
     )
     rows = session.execute(stmt).all()
     lookup = {row.status: row.cnt for row in rows}
-    return [{"status": s, "count": lookup.get(s, 0)} for s in STATUS_ORDER]
+    return [{"status": s, "count": lookup.get(s, 0)} for s in STATUSES]
 
 
 def _interview_outcomes(session, user_id):
@@ -154,33 +154,23 @@ def _upcoming_interviews(session, user_id, now_utc):
     ]
 
 
-def list_upcoming_follow_ups(session, user_id, today):
-    """Owner-scoped date-only entries from the Dashboard's read transaction."""
-    statement = (
-        select(JobApplication.application_id, Company.name.label("company"),
-               JobApplication.job_title, JobApplication.follow_up_date)
+def _awaiting_results(session, user_id, now_utc):
+    """Past interviews whose outcome is still Pending, newest first."""
+    stmt = (
+        select(Interview.interview_id, Interview.scheduled_at,
+               JobApplication.job_title, Company.name.label("company"))
+        .select_from(Interview)
+        .join(JobApplication, JobApplication.application_id == Interview.application_id)
         .join(Company, Company.company_id == JobApplication.company_id)
         .where(
             JobApplication.user_id == user_id,
-            JobApplication.follow_up_date.between(today, today + timedelta(days=7)),
-            JobApplication.status.not_in(("Rejected", "Withdrawn")),
+            Interview.scheduled_at < now_utc,
+            func.coalesce(Interview.outcome, "Pending") == "Pending",
         )
-        .order_by(JobApplication.follow_up_date, JobApplication.application_id)
+        .order_by(Interview.scheduled_at.desc(), Interview.interview_id)
     )
-    return [
-        dict(row, application_link=url_for("tracker", _anchor=f"details-{row['application_id']}"))
-        for row in session.execute(statement).mappings()
-    ]
-
-
-def _upcoming(session, user_id, now_utc):
-    """Date-only follow-ups lead their local day, then interviews in time order."""
-    today = utc_to_dublin(now_utc).date()
-    items = [(row["scheduled_at"].date(), 1, row["scheduled_at"].timestamp(), row["interview_id"],
-              dict(row, kind="interview")) for row in _upcoming_interviews(session, user_id, now_utc)]
-    items.extend((row["follow_up_date"], 0, 0, row["application_id"], dict(row, kind="follow_up"))
-                 for row in list_upcoming_follow_ups(session, user_id, today))
-    return [item[-1] for item in sorted(items, key=lambda item: item[:-1])]
+    return [dict(row, scheduled_at=utc_to_dublin(row["scheduled_at"]))
+            for row in session.execute(stmt).mappings()]
 
 
 def _recent_applications(session, user_id):
@@ -214,7 +204,7 @@ def _recent_applications(session, user_id):
 
 
 def load_dashboard(user_id):
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    now_utc = _now_utc()
 
     with operation_session(
         read_only=True,
@@ -242,7 +232,8 @@ def load_dashboard(user_id):
             "interview_types": _interview_types(session, user_id),
             "top_companies": _top_companies(session, user_id),
             "response_rate": _response_rate(session, user_id),
-            "upcoming": _upcoming(session, user_id, now_utc),
+            "upcoming": _upcoming_interviews(session, user_id, now_utc),
+            "awaiting_results": _awaiting_results(session, user_id, now_utc),
             "recent_applications": _recent_applications(session, user_id),
             "work_type_breakdown": _work_type_breakdown(session, user_id),
         }

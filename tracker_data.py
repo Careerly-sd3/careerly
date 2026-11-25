@@ -1,7 +1,7 @@
 """Tracker page data, read from the JobApplication, Company and Interview tables."""
 
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import logging
 from urllib.parse import urlsplit
@@ -13,6 +13,7 @@ from models import AIAnalysis, JobApplication, Company
 from orm_db import operation_session
 from services.interview_service import list_interviews, _list_interviews
 from services.interview_time import utc_to_dublin
+from services.common import now_utc as _now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -142,19 +143,12 @@ def _history(application, interviews, cutoff):
     return sorted(events, key=lambda event: event["date"])  # stable: keeps same-day order
 
 
-def _now_utc():
-    """The page's single "now": naive UTC to the second, matching the stored DATETIMEs."""
-    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-
-
 def _facts(application):
     """The Details panel's label/value pairs, only for fields that hold something."""
     values = ((label, (application.get(field) or "").strip()) for field, label in FACT_FIELDS)
     facts = [{"label": label, "value": value} for label, value in values if value]
     if application.get("closing_date"):
         facts.append({"label": "Closing date", "value": application["closing_date"].strftime(DISPLAY_DATE)})
-    follow_up_date = application.get("follow_up_date")
-    facts.append({"label": "Follow-up", "value": follow_up_date.strftime(DISPLAY_DATE) if follow_up_date else "—"})
     return facts
 
 
@@ -216,6 +210,8 @@ def _application_rows(applications, interviews, cutoff=None):
             "closing_date": closing_date,
             "deadline_warning": warning,
             "status": application["status"],
+            # The star reuses the old follow_up_date column: any date means starred.
+            "starred": application.get("follow_up_date") is not None,
             "next_step": next_step,
             "next_date": next_date,
             "history": _history(application, own_interviews, cutoff),
@@ -296,11 +292,12 @@ def _status_counts(applications):
     return {status: counts[status] for status in SUMMARY_STATUSES}
 
 
-def _filter_rows(rows, status, company, role):
+def _filter_rows(rows, status, company, role, starred=False):
     """Keep the rows that match every filter that is switched on (a blank filter is off)."""
     return [
         row for row in rows
-        if (not status or row["status"] == status)
+        if (not starred or row["starred"])
+        and (not status or row["status"] == status)
         and (not company or row["company"] == company)
         and (not role or row["job_title"] == role)
     ]
@@ -311,12 +308,7 @@ def _options(rows, key):
     return sorted({row[key] for row in rows}, key=str.casefold)
 
 
-def _closing_date_sort_key(row):
-    closing_date = row["closing_date"]
-    return closing_date is None, closing_date, row["application_id"]
-
-
-def load_tracker_page(user_id, status="", company="", role="", sort=""):
+def load_tracker_page(user_id, status="", company="", role="", starred=False):
     """Everything the tracker page shows for one user, from one read transaction.
 
     The filters only narrow the applications table. The status tiles, the total and
@@ -341,18 +333,19 @@ def load_tracker_page(user_id, status="", company="", role="", sort=""):
         logger.exception("Tracker query failed", exc_info=(DatabaseError, safe_error, error.__traceback__))
         raise DatabaseError("Could not load your tracker data. Please try again later.") from None
     cards = _interview_rows(interviews, cutoff)
-    upcoming = [card for card in cards if not card["is_past"]][:VISIBLE_INTERVIEWS]
+    all_upcoming = [card for card in cards if not card["is_past"]]
+    upcoming = all_upcoming[:VISIBLE_INTERVIEWS]
     rows = _application_rows(applications, interviews, cutoff)
-    filtered_rows = _filter_rows(rows, status, company, role)
-    if sort == "closing_date":
-        filtered_rows.sort(key=_closing_date_sort_key)
+    filtered_rows = _filter_rows(rows, status, company, role, starred)
     return {
         "applications": filtered_rows,
         "total_applications": len(applications),
         "company_options": _options(rows, "company"),
         "role_options": _options(rows, "job_title"),
         "interviews": upcoming,
-        "has_more_interviews": len(cards) > len(upcoming),
+        "has_more_interviews": len(all_upcoming) > len(upcoming),
+        # Past interviews whose result was never recorded, newest first.
+        "awaiting_results": [card for card in cards if card["is_past"] and card["outcome"] == "Pending"],
         "practice_meta": _practice_meta(cards, cutoff),
         "practice_questions": practice_questions,
         "practice_application_id": practice_application_id,
@@ -362,5 +355,5 @@ def load_tracker_page(user_id, status="", company="", role="", sort=""):
 
 def load_interviews_page(user_id):
     """Dedicated owner listing; reuse the UTC ordering and display transformation."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    cutoff = _now_utc()
     return {"interviews": _interview_rows(list_interviews(user_id, cutoff=cutoff))}

@@ -223,6 +223,11 @@ body:has(> main > .interviews-page) > footer {
         display: none;
     }
 
+    /* Only the Starred pill shows from the Actions heading on phones */
+    .applications-table .actions-head-label {
+        display: none;
+    }
+
     .applications-table .filter-head {
         min-height: 2.25rem;
         padding-inline: 0.85rem;

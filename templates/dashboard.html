@@ -1,4 +1,5 @@
 {% extends "template.html" %}
+{% from "_interview_results.html" import awaiting_results_banner with context %}
 {% block title %}Dashboard{% endblock %}
 
 {% block css %}
@@ -251,22 +252,13 @@
                 {% for item in upcoming %}
                 <li class="list-group-item px-2 d-flex flex-wrap gap-2 justify-content-between">
                     <div>
-                        {% if item.kind == 'follow_up' %}
-                        <a class="d-block fw-semibold fs-sm" href="{{ item.application_link }}">{{ item.job_title }}</a>
-                        <span class="fg-3 fs-xs">{{ item.company }} · Follow-up</span>
-                        {% else %}
                         <small class="d-block fw-semibold">{{ item.job_title }}</small>
                         <span class="fg-3 fs-xs">{{ item.company }} · Interview · {{ item.interview_type|capitalize }}</span>
-                        {% endif %}
                     </div>
                     <span class="text-end fg-3 fs-xs">
-                        {% if item.kind == 'follow_up' %}
-                        {{ item.follow_up_date.strftime('%b %d') }}
-                        {% else %}
                         {{ item.scheduled_at.strftime('%b %d') }}
                         <br>
                         {{ item.scheduled_at.strftime('%H:%M') }}
-                        {% endif %}
                     </span>
                 </li>
                 {% endfor %}
@@ -317,4 +309,5 @@
         </div>
     </div>
 </section>
+{{ awaiting_results_banner(awaiting_results) }}
 {% endblock %}

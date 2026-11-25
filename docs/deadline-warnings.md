@@ -2,7 +2,7 @@
 
 Tracker uses the Europe/Dublin calendar date at its shared UTC cutoff. The Next Step cell shows a red warning for overdue deadlines and days 0–2, amber for days 3–7, and green from day 8. Blank deadlines and Offer, Rejected and Withdrawn rows have no warning.
 
-**Closing date** sorts the filtered results earliest first, including rows without warnings. Blank deadlines come last, and equal dates are ordered by application ID. **Default order** restores the original order. Add and edit reject a closing date before the applied date and retain the submitted values. Equal dates and optional blanks are accepted.
+Add and edit reject a closing date before the applied date and retain the submitted values. Equal dates and optional blanks are accepted.
 
 ## Baseline failures
 

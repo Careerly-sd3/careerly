@@ -65,7 +65,7 @@ Names, lengths and types follow the attached ERD. `NULL` annotations mean nullab
 | status | VARCHAR(30) | - | No | DEFAULT 'Saved'; allowed: Saved, Applied, Interview, Offer, Rejected, Withdrawn | Current tracking stage. |
 | job_url | VARCHAR(500) | - | Yes | None specified | Link to the job advertisement. |
 | closing_date | DATE | - | Yes | None specified | Application deadline. |
-| follow_up_date | DATE | - | Yes | NULL | Optional follow-up date. Added by migration 002. |
+| follow_up_date | DATE | - | Yes | NULL | Now used as the star: a date (the day it was starred) means starred, NULL means not. Added by migration 002 as a follow-up date. |
 | applied_at | DATE | - | Yes | None specified | Date the user applied; no time component. |
 | salary_text | VARCHAR(100) | - | Yes | None specified | Salary wording or range; not a numeric amount. |
 | notes | TEXT | - | Yes | None specified | User notes about the application. |

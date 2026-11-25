@@ -14,14 +14,6 @@
 
 /* ---------- The row that holds the panels ---------- */
 
-/* The table is normally a short scroll box (as tall as the practice card). While a row's
-   details are open it grows to show the row and its panels whole, pushing the page down,
-   instead of scrolling them under the sticky heading. Closing them restores the box. */
-.applications-scroll:has(.details-row:not([hidden])) {
-    height: auto;
-    max-height: none;
-}
-
 /* Higher specificity than the phone layout's "every row is a grid card" rules. */
 .applications-table > tbody > tr.details-row[hidden] { display: none; }
 
@@ -40,6 +32,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--details-gap);
+    /* The panels take the table's width but never ask for any, so opening them
+       doesn't make the columns above shift. */
+    contain: inline-size;
 }
 
 @container tracker (width >= 640px) {

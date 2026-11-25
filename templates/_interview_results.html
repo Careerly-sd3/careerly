@@ -2,8 +2,8 @@
 "How did it go?" popup, shown in the bottom-right corner of the Tracker and the Dashboard.
   items: past interviews whose outcome is still Pending (interview_id, company, job_title,
          scheduled_at in Dublin time).
-Each line is its own small form: Passed or Failed saves the result (Failed also marks the
-application Rejected), then the user comes back to this page. × hides the popup until the next page load.
+Each line is its own small form: Offer, Rejected or Withdrawn sets the application's status
+(Offer also saves the interview as Passed, Rejected as Failed), then the user comes back to this page. × hides the popup until the next page load.
 Import it "with context" so csrf_token() and request are available.
 #}
 {% macro awaiting_results_banner(items) -%}
@@ -27,9 +27,9 @@ Import it "with context" so csrf_token() and request are available.
             <p class="mb-0">Your <strong>{{ item.company }}</strong> interview ({{ item.job_title }})
                 was on {{ item.scheduled_at.strftime('%b %d') }}.</p>
             <div class="d-flex gap-2">
-                <button type="submit" name="outcome" value="Passed" class="btn btn-subtle btn-sm theme-success">Passed</button>
-                <button type="submit" name="outcome" value="Failed" class="btn btn-subtle btn-sm theme-danger"
-                    title="Also marks the application Rejected">Failed</button>
+                <button type="submit" name="status" value="Offer" class="btn btn-subtle btn-sm theme-success">Offer</button>
+                <button type="submit" name="status" value="Rejected" class="btn btn-subtle btn-sm theme-danger">Rejected</button>
+                <button type="submit" name="status" value="Withdrawn" class="btn btn-subtle btn-sm theme-secondary">Withdrawn</button>
             </div>
         </form>
         {% endfor %}

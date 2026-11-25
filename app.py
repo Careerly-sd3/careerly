@@ -193,6 +193,28 @@ def tracker():
 
 
 NOTES_SAVE_FAILED = "Could not save your notes. Check your tracker before retrying."
+STAR_SAVE_FAILED = "Could not update the star. Please try again."
+STATUS_SAVE_FAILED = "Could not change the status. Please try again."
+
+
+def _save_from_tracker(save, answer, failure_message):
+    """Run a small tracker save (star, status).
+
+    tracker.js asks for JSON and gets `answer` (or the error, with 503). Without JavaScript
+    the form posts normally: the failure is flashed and we go back to the page it came from.
+    Not-found and validation errors are left to the caller's own handling.
+    """
+    wants_json = request.accept_mimetypes.best == "application/json"
+    try:
+        save()
+    except DatabaseError:
+        if wants_json:
+            return jsonify(error=failure_message), 503
+        flash(failure_message, "danger")
+    else:
+        if wants_json:
+            return jsonify(answer)
+    return redirect(safe_next_url(request.form.get("next")) or url_for("tracker"))
 
 
 @app.route("/applications/<int:application_id>/notes", methods=["POST"])
@@ -218,36 +240,50 @@ def save_application_notes(application_id):
 @login_required
 @csrf_protect
 def star_application(application_id):
-    """Star (starred=1) or unstar an application, then go back to the page it came from."""
+    """Star (starred=1) or unstar an application from its Tracker row."""
+    starred = request.form.get("starred") == "1"
     try:
-        application_service.set_starred(
-            current_user_id(), application_id, request.form.get("starred") == "1")
+        return _save_from_tracker(
+            lambda: application_service.set_starred(current_user_id(), application_id, starred),
+            {"starred": starred}, STAR_SAVE_FAILED)
     except (application_service.ApplicationNotFound, application_service.ApplicationValidationError):
         abort(404)
-    except DatabaseError:
-        flash("Could not update the star. Please try again.", "danger")
-    return redirect(safe_next_url(request.form.get("next")) or url_for("tracker"))
+
+
+@app.post("/applications/<int:application_id>/status")
+@login_required
+@csrf_protect
+def change_application_status(application_id):
+    """Change an application's status from the dropdown in its Tracker row."""
+    status = request.form.get("status")
+    try:
+        return _save_from_tracker(
+            lambda: application_service.set_status(current_user_id(), application_id, status),
+            {"status": status}, STATUS_SAVE_FAILED)
+    except application_service.ApplicationNotFound:
+        abort(404)
+    except application_service.ApplicationValidationError as error:
+        abort(400 if "status" in error.errors else 404)
 
 
 @app.post("/interviews/<int:interview_id>/result")
 @login_required
 @csrf_protect
 def record_interview_result(interview_id):
-    """The "How did it go?" banner: save Passed or Failed for a past interview."""
-    outcome = request.form.get("outcome")
+    """The "How did it go?" banner: set the application to Offer, Rejected or Withdrawn."""
+    status = request.form.get("status")
     try:
-        interview_service.record_result(current_user_id(), interview_id, outcome)
+        interview_service.record_result(current_user_id(), interview_id, status)
     except interview_service.InterviewNotFound:
         abort(404)
     except interview_service.InterviewValidationError as error:
-        if "outcome" not in error.errors:
+        if "status" not in error.errors:
             abort(404)  # an out-of-range id in the address is simply not one of the user's
         abort(400)
     except DatabaseError:
         flash("Could not save the interview result. Please try again.", "danger")
     else:
-        flash("Interview result saved." + (" The application is now Rejected." if outcome == "Failed" else ""),
-              "success")
+        flash(f"Interview result saved. The application is now {status}.", "success")
     return redirect(safe_next_url(request.form.get("next")) or url_for("tracker"))
 
 

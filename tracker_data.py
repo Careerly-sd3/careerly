@@ -11,7 +11,7 @@ from sqlalchemy import select
 from db import DatabaseError
 from models import AIAnalysis, JobApplication, Company
 from orm_db import operation_session
-from services.interview_service import list_interviews, _list_interviews
+from services.interview_service import FINAL_STATUSES, list_interviews, _list_interviews
 from services.interview_time import utc_to_dublin
 from services.common import now_utc as _now_utc
 
@@ -287,6 +287,15 @@ def _practice_meta(cards, cutoff):
     return f"{soonest['job_title']} · {soonest['company']} · {soonest['scheduled_at'].strftime('%A')}"
 
 
+def _awaiting_results(cards, applications):
+    """Past interviews whose result was never recorded, newest first,
+    skipping applications that are already finished (Offer, Rejected or Withdrawn)."""
+    finished = {application["application_id"] for application in applications
+                if application["status"] in FINAL_STATUSES}
+    return [card for card in cards
+            if card["is_past"] and card["outcome"] == "Pending" and card["application_id"] not in finished]
+
+
 def _status_counts(applications):
     counts = Counter(application["status"] for application in applications)
     return {status: counts[status] for status in SUMMARY_STATUSES}
@@ -344,8 +353,7 @@ def load_tracker_page(user_id, status="", company="", role="", starred=False):
         "role_options": _options(rows, "job_title"),
         "interviews": upcoming,
         "has_more_interviews": len(all_upcoming) > len(upcoming),
-        # Past interviews whose result was never recorded, newest first.
-        "awaiting_results": [card for card in cards if card["is_past"] and card["outcome"] == "Pending"],
+        "awaiting_results": _awaiting_results(cards, applications),
         "practice_meta": _practice_meta(cards, cutoff),
         "practice_questions": practice_questions,
         "practice_application_id": practice_application_id,

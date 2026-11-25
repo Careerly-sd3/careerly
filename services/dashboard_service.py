@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import case, desc, func, select
 from models import Company, Interview, JobApplication
 from orm_db import operation_session
+from services.interview_service import FINAL_STATUSES
 from services.interview_time import utc_to_dublin
 from services.application_service import STATUSES
 from services.common import now_utc as _now_utc
@@ -155,7 +156,8 @@ def _upcoming_interviews(session, user_id, now_utc):
 
 
 def _awaiting_results(session, user_id, now_utc):
-    """Past interviews whose outcome is still Pending, newest first."""
+    """Past interviews whose outcome is still Pending, newest first.
+    Skipped once the application is finished (Offer, Rejected or Withdrawn)."""
     stmt = (
         select(Interview.interview_id, Interview.scheduled_at,
                JobApplication.job_title, Company.name.label("company"))
@@ -166,6 +168,7 @@ def _awaiting_results(session, user_id, now_utc):
             JobApplication.user_id == user_id,
             Interview.scheduled_at < now_utc,
             func.coalesce(Interview.outcome, "Pending") == "Pending",
+            JobApplication.status.notin_(FINAL_STATUSES),
         )
         .order_by(Interview.scheduled_at.desc(), Interview.interview_id)
     )

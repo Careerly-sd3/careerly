@@ -256,26 +256,32 @@ def update_interview_notes(user_id, interview_id, *, notes):
     return _write(operation)
 
 
-RESULT_OUTCOMES = ("Passed", "Failed")
+# "How did it go?" answers: the application status to set, and the interview outcome it implies.
+# Withdrawn says nothing about how the interview went, so its outcome stays as it is.
+RESULT_STATUSES = {"Offer": "Passed", "Rejected": "Failed", "Withdrawn": None}
+FINAL_STATUSES = tuple(RESULT_STATUSES)
 
 
-def record_result(user_id, interview_id, outcome, *, now=None):
-    """Save how an interview went. Failed also marks the application Rejected."""
+def record_result(user_id, interview_id, status, *, now=None):
+    """Answer "How did it go?": set the application to Offer, Rejected or Withdrawn.
+
+    Offer also saves the interview as Passed and Rejected as Failed; Withdrawn leaves it alone.
+    """
     _validate_id(user_id, "user_id")
     _validate_id(interview_id, "interview_id")
-    if outcome not in RESULT_OUTCOMES:
-        raise InterviewValidationError({"outcome": "Choose Passed or Failed."})
+    if status not in RESULT_STATUSES:
+        raise InterviewValidationError({"status": "Choose Offer, Rejected or Withdrawn."})
+    outcome = RESULT_STATUSES[status]
 
     def operation(session):
         interview = _owned_interview(session, user_id, interview_id, lock=True)
-        session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id))
-                        .values(outcome=outcome),
-                        execution_options={"synchronize_session": False})
-        if outcome == "Failed":
-            updated_at = now or now_utc()
-            session.execute(update(JobApplication)
-                            .where(JobApplication.application_id == interview["application_id"],
-                                   JobApplication.user_id == user_id)
-                            .values(status="Rejected", updated_at=updated_at),
+        if outcome:
+            session.execute(update(Interview).where(*_mutation_predicates(user_id, interview_id))
+                            .values(outcome=outcome),
                             execution_options={"synchronize_session": False})
+        session.execute(update(JobApplication)
+                        .where(JobApplication.application_id == interview["application_id"],
+                               JobApplication.user_id == user_id)
+                        .values(status=status, updated_at=now or now_utc()),
+                        execution_options={"synchronize_session": False})
     return _write(operation)

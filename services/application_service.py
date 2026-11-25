@@ -430,3 +430,20 @@ def set_starred(user_id, application_id, starred, *, now=None):
                 raise ApplicationNotFound()
     except TransactionConflict:
         raise ApplicationTransactionError("Finish the caller's transaction before starring.") from None
+
+
+def set_status(user_id, application_id, status, *, now=None):
+    """Change only the status of an owned application (the tracker's inline dropdown)."""
+    _validate_id(user_id, "user_id")
+    _validate_id(application_id, "application_id")
+    if status not in STATUSES:
+        raise ApplicationValidationError({"status": "Choose a status from the list."})
+    stamp = now or _now_utc()
+
+    def operation(session):
+        _lock_owned(session, user_id, application_id)
+        session.execute(
+            update(JobApplication).where(*_owned(user_id, application_id))
+            .values(status=status, updated_at=stamp),
+            execution_options={"synchronize_session": False})
+    _write(operation, "Could not change the status; check your tracker before retrying.")

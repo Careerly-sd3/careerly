@@ -15,6 +15,12 @@ body:has(> main > .interviews-page) > footer {
     margin-block-start: calc(3rem - 1.75rem);
 }
 
+/* The tracker starts right under the navbar: the body's gap-12 (3rem) is enough space,
+   so drop the extra 5rem every page section gets on top (style.css: main > section). */
+main > .tracker {
+    margin-block-start: 0;
+}
+
 /* ---------- Header: title, Add button, status tiles ---------- */
 
 .tracker-header {
@@ -148,26 +154,92 @@ body:has(> main > .interviews-page) > footer {
     background-color: var(--bs-bg-body);  /* the phone layout clears Bootstrap's cell background */
 }
 
+/* A fixed panel about six rows tall: it never shrinks to fit a short list, and scrolls past six.
+   tracker.js fills the space under the last application with blank ruled rows. */
 .applications-scroll {
-    max-height: 21rem;  /* about five rows, then it scrolls */
+    height: 26rem;
     scrollbar-gutter: stable;  /* opening a row's details doesn't shift the columns */
 }
 
 /* Blank ruled rows that tracker.js adds under the last application to fill the panel. */
 .applications-table .filler-row { pointer-events: none; }
 
-/* Side by side with the interviews: as tall as the practice card (tracker.js sets the height). */
-@container tracker (width >= 768px) {
-    .applications-scroll {
-        height: var(--practice-card-height, auto);
-        max-height: none;
-    }
-}
-
-.applications-table [data-col="applied"],
 .applications-table [data-col="status"] {
     white-space: nowrap;
 }
+
+/* Every heading and cell sits on one centre line (the star and buttons are taller than the text). */
+.applications-table > thead > tr > th,
+.applications-table > tbody > tr > td {
+    vertical-align: middle;
+}
+
+.applications-table .filter-head,
+.applications-table .clear-filters {
+    line-height: 2rem;  /* as tall as the star, so the heading text lines up with it */
+}
+
+/* Star column: just wide enough for the star button (and the star filter above it). */
+.applications-table [data-col="star"],
+.applications-table .star-head {
+    width: 1%;
+    padding-inline-end: 0;
+}
+
+/* Star (row button and header filter): a plain icon, outlined until starred, then filled gold. */
+.star-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: inherit;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.star-toggle:hover { color: #b58100; }
+.star-toggle.is-starred { color: #d39e00; }
+.star-toggle:focus-visible,
+.star-toggle:focus-within:has(:focus-visible) { outline: 2px solid currentColor; outline-offset: 1px; }
+
+/* "Clear filters" sits at the right end of the heading row while any filter is on. */
+.clear-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+    text-decoration: none;
+}
+.clear-filters:hover { text-decoration: underline; }
+
+/* Status button that is also a dropdown: the <select> is drawn without its own frame. */
+.status-select {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+}
+
+.status-select select {
+    appearance: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.status-select select:focus-visible { outline: none; }
+.status-select:focus-within { outline: 2px solid currentColor; outline-offset: 2px; }
+.status-select .bi { font-size: 0.7em; pointer-events: none; }
 
 /* The table heading (filters) sticks inside the table, but must slide UNDER the page's sticky
    header: both get Bootstrap's sticky z-index and the heading comes later, so it would paint on top. */
@@ -194,11 +266,12 @@ body:has(> main > .interviews-page) > footer {
 }
 
 /* Phones: the heading row becomes filter buttons and each row a small card:
-   company ............ status
-   role
-   applied   next step   actions */
+   star  company ...... status
+   star  role
+   next step
+   actions */
 @container tracker (width < 640px) {
-    .applications-scroll { max-height: none; }
+    .applications-scroll { height: auto; }
 
     .applications-table,
     .applications-table > thead,
@@ -219,9 +292,11 @@ body:has(> main > .interviews-page) > footer {
         border: 0;
     }
 
-    .applications-table > thead > tr > th:not(:has(.filter-head)) {
+    .applications-table > thead > tr > th:not(:has(.filter-head, .star-filter, .clear-filters)) {
         display: none;
     }
+
+    .applications-table .actions-head-label { display: none; }
 
     .applications-table .filter-head {
         min-height: 2.25rem;
@@ -239,12 +314,12 @@ body:has(> main > .interviews-page) > footer {
 
     .applications-table > tbody > tr {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        grid-template-columns: auto minmax(0, 1fr) auto;
         grid-template-areas:
-            "company status"
-            "role role"
-            "applied next"
-            "actions actions";
+            "star company status"
+            "star role role"
+            "next next next"
+            "actions actions actions";
         gap: 0.15rem 0.75rem;
         padding: 0.85rem 1rem;
     }
@@ -268,15 +343,12 @@ body:has(> main > .interviews-page) > footer {
     .applications-table [data-col="company"] { grid-area: company; font-weight: 700; }
     .applications-table [data-col="status"]  { grid-area: status; justify-self: end; }
     .applications-table [data-col="role"]    { grid-area: role; color: var(--bs-fg-3); margin-block-end: 0.5rem; }
-    .applications-table [data-col="applied"] { grid-area: applied; }
+    .applications-table [data-col="star"]    { grid-area: star; width: auto; align-self: start; }
     .applications-table [data-col="next"]    { grid-area: next; }
     .applications-table [data-col="actions"] { grid-area: actions; align-self: end; }
 
-    .applications-table [data-col="applied"]::before { content: "Applied"; }
-    .applications-table [data-col="next"]::before    { content: "Next step"; }
-
-    .applications-table [data-col="applied"]::before,
     .applications-table [data-col="next"]::before {
+        content: "Next step";
         display: block;
         font-size: 0.75rem;
         font-weight: 500;

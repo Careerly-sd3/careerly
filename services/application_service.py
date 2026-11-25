@@ -13,7 +13,7 @@ is refused without touching the caller. Ownership is locked and rechecked before
 changing a row, and timestamps are explicit naive UTC values.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 import re
 from urllib.parse import urlsplit
 
@@ -22,11 +22,11 @@ from sqlalchemy import delete, func, select, update
 from db import DatabaseError
 from models import Company, Interview, JobApplication
 from orm_db import operation_session, TransactionConflict
+from services.common import is_valid_id, now_utc as _now_utc
 
 # MySQL TEXT holds at most 65,535 bytes; utf8mb4 characters take 1 to 4 bytes each.
 NOTES_MAX_BYTES = 65535
 JOB_AD_MAX_BYTES = 65535
-MAX_ID = 2147483647  # signed INT primary keys
 
 # Enforced by the database CHECK constraint on JobApplication.status.
 STATUSES = ("Saved", "Applied", "Interview", "Offer", "Rejected", "Withdrawn")
@@ -60,7 +60,7 @@ class ApplicationTransactionError(DatabaseError):
 
 
 def _validate_id(value, field):
-    if type(value) is not int or not 1 <= value <= MAX_ID:
+    if not is_valid_id(value):
         raise ApplicationValidationError({field: "A positive persisted integer ID is required."})
 
 
@@ -80,10 +80,6 @@ def _clean_notes(notes):
         raise ApplicationValidationError(
             {"notes": f"Notes can be at most {NOTES_MAX_BYTES} bytes (about 16,000 to 65,000 characters)."})
     return notes
-
-
-def _now_utc():
-    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
 
 
 # ---------- field cleaning (CAR-54) ----------
@@ -192,7 +188,7 @@ def _long_text_field(errors, field, value):
 
 
 def _clean_fields(*, company, job_title, opportunity_type, work_type, status, location,
-                  job_url, closing_date, applied_at, follow_up_date, salary_text, job_ad_text):
+                  job_url, closing_date, applied_at, salary_text, job_ad_text):
     """Return (company_name, column_values) or raise ApplicationValidationError.
 
     Notes are deliberately not part of this form: they keep their own in-place
@@ -215,7 +211,6 @@ def _clean_fields(*, company, job_title, opportunity_type, work_type, status, lo
         "job_url": _url_field(errors, "job_url", job_url),
         "closing_date": _date_field(errors, "closing_date", closing_date),
         "applied_at": _date_field(errors, "applied_at", applied_at),
-        "follow_up_date": _date_field(errors, "follow_up_date", follow_up_date),
         "salary_text": _text_field(errors, "salary_text", salary_text, 100),
         "job_ad_text": _long_text_field(errors, "job_ad_text", job_ad_text),
     }
@@ -228,9 +223,6 @@ def _clean_fields(*, company, job_title, opportunity_type, work_type, status, lo
     applied_at = values["applied_at"]
     if closing_date is not None and applied_at is not None and closing_date < applied_at:
         errors["closing_date"] = "Closing date cannot be earlier than applied date."
-    follow_up_date = values["follow_up_date"]
-    if follow_up_date is not None and applied_at is not None and follow_up_date < applied_at:
-        errors["follow_up_date"] = "Follow-up date cannot be earlier than applied date."
     if errors:
         raise ApplicationValidationError(errors)
     return company_name, values
@@ -292,7 +284,7 @@ def _company_id(session, user_id, name):
     company = Company(name=name)
     session.add(company)
     session.flush()
-    if type(company.company_id) is not int or not 1 <= company.company_id <= MAX_ID:
+    if not is_valid_id(company.company_id):
         raise DatabaseError("Company creation did not return a valid persisted ID.")
     return company.company_id
 
@@ -320,13 +312,13 @@ def get_application(user_id, application_id):
 
 def create_application(user_id, *, company, job_title, opportunity_type, work_type=None,
                        status=DEFAULT_STATUS, location=None, job_url=None, closing_date=None,
-                       applied_at=None, follow_up_date=None, salary_text=None, job_ad_text=None, now=None):
+                       applied_at=None, salary_text=None, job_ad_text=None, now=None):
     """Create an application owned by user_id; return the committed saved row."""
     _validate_id(user_id, "user_id")
     company_name, values = _clean_fields(
         company=company, job_title=job_title, opportunity_type=opportunity_type,
         work_type=work_type, status=status, location=location, job_url=job_url,
-        closing_date=closing_date, applied_at=applied_at, follow_up_date=follow_up_date, salary_text=salary_text,
+        closing_date=closing_date, applied_at=applied_at, salary_text=salary_text,
         job_ad_text=job_ad_text)
     stamp = now or _now_utc()
 
@@ -335,7 +327,7 @@ def create_application(user_id, *, company, job_title, opportunity_type, work_ty
                                 created_at=stamp, updated_at=stamp, **values)
         session.add(record)
         session.flush()
-        if type(record.application_id) is not int or not 1 <= record.application_id <= MAX_ID:
+        if not is_valid_id(record.application_id):
             raise DatabaseError("Application creation did not return a valid persisted ID.")
         return _owned_application(session, user_id, record.application_id)
     return _write(operation, "Could not save the application; check your tracker before retrying.")
@@ -343,7 +335,7 @@ def create_application(user_id, *, company, job_title, opportunity_type, work_ty
 
 def update_application(user_id, application_id, *, company, job_title, opportunity_type,
                        work_type=None, status=DEFAULT_STATUS, location=None, job_url=None,
-                       closing_date=None, applied_at=None, follow_up_date=None, salary_text=None, job_ad_text=None,
+                       closing_date=None, applied_at=None, salary_text=None, job_ad_text=None,
                        now=None):
     """Full replacement of the editable fields (omitted optional fields are cleared).
 
@@ -355,7 +347,7 @@ def update_application(user_id, application_id, *, company, job_title, opportuni
     company_name, values = _clean_fields(
         company=company, job_title=job_title, opportunity_type=opportunity_type,
         work_type=work_type, status=status, location=location, job_url=job_url,
-        closing_date=closing_date, applied_at=applied_at, follow_up_date=follow_up_date, salary_text=salary_text,
+        closing_date=closing_date, applied_at=applied_at, salary_text=salary_text,
         job_ad_text=job_ad_text)
     stamp = now or _now_utc()
 
@@ -416,3 +408,42 @@ def update_notes(user_id, application_id, notes, *, now=None):
         return {"notes": notes, "updated_at": updated_at}
     except TransactionConflict:
         raise ApplicationTransactionError("Finish the caller's transaction before saving notes.") from None
+
+
+def set_starred(user_id, application_id, starred, *, now=None):
+    """Star or unstar an owned application.
+
+    The star reuses the old follow_up_date column: a date means starred (the day it
+    was starred), NULL means not starred. This avoids a database migration.
+    """
+    _validate_id(user_id, "user_id")
+    _validate_id(application_id, "application_id")
+    starred_on = (now or _now_utc()).date() if starred else None
+    owned = (JobApplication.application_id == application_id, JobApplication.user_id == user_id)
+    try:
+        with operation_session() as session:
+            result = session.execute(
+                update(JobApplication).where(*owned).values(follow_up_date=starred_on),
+                execution_options={"synchronize_session": False},
+            )
+            if result.rowcount != 1:
+                raise ApplicationNotFound()
+    except TransactionConflict:
+        raise ApplicationTransactionError("Finish the caller's transaction before starring.") from None
+
+
+def set_status(user_id, application_id, status, *, now=None):
+    """Change only the status of an owned application (the tracker's inline dropdown)."""
+    _validate_id(user_id, "user_id")
+    _validate_id(application_id, "application_id")
+    if status not in STATUSES:
+        raise ApplicationValidationError({"status": "Choose a status from the list."})
+    stamp = now or _now_utc()
+
+    def operation(session):
+        _lock_owned(session, user_id, application_id)
+        session.execute(
+            update(JobApplication).where(*_owned(user_id, application_id))
+            .values(status=status, updated_at=stamp),
+            execution_options={"synchronize_session": False})
+    _write(operation, "Could not change the status; check your tracker before retrying.")

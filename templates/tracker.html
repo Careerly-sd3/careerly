@@ -5,9 +5,30 @@
 
 {# The Details / Notes / Interviews / History panels under each row (CAR-63) #}
 {% from "tracker/_details.html" import date_text, details_row, notes_form %}
+{% from "_interview_results.html" import awaiting_results_banner with context %}
 
-{% macro status_badge(status) -%}
-<span class="badge badge-subtle theme-{{ status_themes[status] }}">{{ status }}</span>
+{# The status is a dropdown styled like the row's buttons. It belongs to the row's hidden status form
+   below the table: tracker.js saves it in the background (without JavaScript the form posts). #}
+{% macro status_select(application) -%}
+<label class="status-select btn btn-subtle btn-sm theme-{{ status_themes[application.status] }}">
+    <span class="visually-hidden">Status of the {{ application.company }} application</span>
+    <select name="status" form="status-form-{{ application.application_id }}" data-status-select>
+        {% for status in status_themes %}
+        <option value="{{ status }}" data-theme="{{ status_themes[status] }}"{% if status == application.status %} selected{% endif %}>{{ status }}</option>
+        {% endfor %}
+    </select>
+    <i class="bi bi-chevron-down" aria-hidden="true"></i>
+</label>
+{%- endmacro %}
+
+{# Belongs to the hidden star-form below the table (forms cannot nest); tracker.js saves it in the background #}
+{% macro star_button(application) -%}
+<button type="submit" form="star-form" formaction="{{ url_for('star_application', application_id=application.application_id) }}"
+    name="starred" value="{{ '0' if application.starred else '1' }}" aria-pressed="{{ 'true' if application.starred else 'false' }}"
+    class="star-toggle{% if application.starred %} is-starred{% endif %}" aria-label="Star {{ application.company }} application"
+    title="{{ 'Unstar' if application.starred else 'Star' }} application">
+    <i class="bi {{ 'bi-star-fill' if application.starred else 'bi-star' }}" aria-hidden="true"></i>
+</button>
 {%- endmacro %}
 
 {% macro row_actions(application) -%}
@@ -133,39 +154,45 @@
     </label>
     {%- endmacro %}
 
-    <form method="get" action="{{ url_for('tracker') }}" class="d-flex flex-column gap-2">
-        <div class="d-flex flex-wrap align-items-center gap-2">
-            <label for="application-sort">Sort by</label>
-            <select id="application-sort" name="sort" data-auto-submit>
-                <option value=""{% if not sort %} selected{% endif %}>Default order</option>
-                <option value="closing_date"{% if sort == 'closing_date' %} selected{% endif %}>Closing date</option>
-            </select>
-            {% if status or company or role %}
-            <a href="{{ url_for('tracker', sort=sort) if sort else url_for('tracker') }}" class="fs-sm">Clear filters</a>
-            {% endif %}
-        </div>
-
-        {# Applications table: about 5 rows tall, then it scrolls (cards on phones) #}
+    <form method="get" action="{{ url_for('tracker') }}">
+        {# Applications table: a fixed box about 6 rows tall, then it scrolls (cards on phones) #}
         <div class="table-card applications-card mb-0" data-bs-theme="light">
             <div class="table-responsive applications-scroll visible-scroll overflow-y-auto" role="region" aria-label="Applications table" tabindex="0">
                 <table id="applications-table" class="table table-hover applications-table">
                     <thead class="sticky-top">
                         <tr>
+                            <th scope="col" class="star-head">
+                                {# A checkbox drawn as a star: filled = only starred applications are shown #}
+                                <label class="star-toggle star-filter{% if starred %} is-starred{% endif %}"
+                                    title="{{ 'Show all applications' if starred else 'Show starred applications only' }}">
+                                    <input type="checkbox" class="visually-hidden" name="starred" value="1"{% if starred %} checked{% endif %}
+                                        aria-label="Show starred applications only" data-auto-submit>
+                                    <i class="bi {{ 'bi-star-fill' if starred else 'bi-star' }}" aria-hidden="true"></i>
+                                </label>
+                            </th>
                             <th scope="col">{{ filter_heading('company', 'Company', 'All companies', company_options, company) }}</th>
                             <th scope="col">{{ filter_heading('role', 'Role', 'All roles', role_options, role) }}</th>
-                            <th scope="col">Applied</th>
                             <th scope="col">{{ filter_heading('status', 'Status', 'All statuses', status_themes, status) }}</th>
                             <th scope="col">Next Step</th>
-                            <th scope="col">Actions</th>
+                            <th scope="col">
+                                <div class="d-flex align-items-center justify-content-between gap-3">
+                                    <span class="actions-head-label">Actions</span>
+                                    {% if status or company or role or starred %}
+                                    <a href="{{ url_for('tracker') }}" class="clear-filters fs-sm fw-medium">
+                                        <i class="bi bi-x-lg" aria-hidden="true"></i> Clear filters
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for application in applications %}
                         <tr>
+                            <td data-col="star">{{ star_button(application) }}</td>
                             <td data-col="company">{{ application.company }}</td>
                             <td data-col="role">{{ application.job_title }}</td>
-                            <td data-col="applied">{{ date_text(application.applied_at) if application.applied_at else '—' }}</td>
-                            <td data-col="status">{{ status_badge(application.status) }}</td>
+                            <td data-col="status">{{ status_select(application) }}</td>
                             <td data-col="next">
                                 {{ application.next_step }}
                                 {% if application.next_date %}<div class="fs-sm fg-3">{{ date_text(application.next_date) }}</div>{% endif %}
@@ -186,9 +213,21 @@
             </div>
         </div>
     </form>
-    {# The Notes editors post through these; they live out here because forms cannot nest.
-       One hidden box, so they add no gaps to the page (the fields join them with form="..."). #}
+    {# The Notes editors, status dropdowns and stars post through these; they live out here because
+       forms cannot nest. Hidden boxes, so they add no gaps to the page (fields join them with form="..."). #}
     <div class="notes-forms" hidden>{% for application in applications %}{{ notes_form(application) }}{% endfor %}</div>
+    <div class="status-forms" hidden>
+        {% for application in applications %}
+        <form id="status-form-{{ application.application_id }}" method="post" action="{{ url_for('change_application_status', application_id=application.application_id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+        </form>
+        {% endfor %}
+    </div>
+    <form id="star-form" method="post" hidden>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+    </form>
     {% else %}
     {{ empty_state('bi-card-checklist', "You haven't tracked any applications yet. Click + Add Application to add your first one.") }}
     {% endif %}
@@ -273,6 +312,8 @@
 
     </div>
 </section>
+
+{{ awaiting_results_banner(awaiting_results) }}
 
 <script src="{{ url_for('static', filename='js/tracker.js') }}"></script>
 {% endblock %}

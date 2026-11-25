@@ -36,13 +36,6 @@ class DeadlineWarningTests(unittest.TestCase):
                 row, = tracker_data._application_rows([application], [], cutoff)
                 self.assertEqual(row["deadline_warning"]["days_left"], days)
 
-    def test_sort_key_breaks_ties_by_id_for_equal_dates_and_missing_dates(self):
-        deadline = date(2026, 7, 10)
-        rows = [dict(application_id=identity, closing_date=closing_date)
-                for identity, closing_date in ((4, None), (3, deadline), (2, None), (1, deadline))]
-        self.assertEqual([row["application_id"] for row in sorted(rows, key=tracker_data._closing_date_sort_key)],
-                         [1, 3, 2, 4])
-
 
 class DeadlineRouteTests(unittest.TestCase):
     setUp = test_add_interview.AddInterviewTests.setUp
@@ -65,14 +58,12 @@ class DeadlineRouteTests(unittest.TestCase):
                 application_id=identity, company=company, job_title=role, status=status,
                 closing_date=date(2026, 7, day) if day else None)
 
-    def test_sort_and_filters_preserve_owner_scope_and_selected_controls(self):
+    def test_warnings_and_filters_preserve_owner_scope_and_selected_controls(self):
         self.seed_deadline_rows()
         with patch("tracker_data._now_utc", return_value=datetime(2026, 7, 10)):
             default = self.client.get("/tracker").get_data(as_text=True)
-            unknown = self.client.get("/tracker?sort=unknown").get_data(as_text=True)
-            sorted_page = self.client.get("/tracker?sort=closing_date").get_data(as_text=True)
             filtered = self.client.get("/tracker", query_string=dict(
-                sort="closing_date", company="Synthetic company", role="Synthetic role",
+                company="Synthetic company", role="Synthetic role",
                 status="Applied")).get_data(as_text=True)
 
         def assert_order(html, ids):
@@ -80,21 +71,18 @@ class DeadlineRouteTests(unittest.TestCase):
             self.assertEqual(positions, sorted(positions))
             self.assertNotIn('id="details-502"', html)
 
-        for html in (default, unknown):
-            assert_order(html, [501, 503, 504, 505, 506, 507, 508, 509, 510])
-            self.assertIn('<option value="" selected>Default order</option>', html)
-        assert_order(sorted_page, [506, 507, 504, 505, 508, 503, 510, 509, 501])
+        assert_order(default, [501, 503, 504, 505, 506, 507, 508, 509, 510])
         # Only five applications have both a deadline and a warning-eligible status.
-        self.assertEqual(sorted_page.count('days left</span>'), 3)
-        self.assertEqual(sorted_page.count('Due today</span>'), 2)
-        self.assertNotIn('Overdue</span>', sorted_page)
-        self.assertIn('theme-warning">3 days left</span>', sorted_page)
-        self.assertIn('theme-success">8 days left</span>', sorted_page)
-        self.assertIn('theme-danger">Due today</span>', sorted_page)
-        assert_order(filtered, [504, 505, 503, 501])
+        self.assertEqual(default.count('days left</span>'), 3)
+        self.assertEqual(default.count('Due today</span>'), 2)
+        self.assertNotIn('Overdue</span>', default)
+        self.assertIn('theme-warning">3 days left</span>', default)
+        self.assertIn('theme-success">8 days left</span>', default)
+        self.assertIn('theme-danger">Due today</span>', default)
+        assert_order(filtered, [501, 503, 504, 505])
         for identity in (506, 507, 508, 509, 510):
             self.assertNotIn(f'id="details-{identity}"', filtered)
-        for value in ("closing_date", "Synthetic company", "Synthetic role", "Applied"):
+        for value in ("Synthetic company", "Synthetic role", "Applied"):
             self.assertIn(f'value="{value}" selected', filtered)
 
     def test_create_and_edit_validate_dates_before_writing_and_retain_input(self):

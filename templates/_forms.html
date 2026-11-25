@@ -1,0 +1,32 @@
+{#
+Form pieces shared by several pages. Import "with context" so the macros can read `errors`
+(field name -> message) from the page; a missing `errors` means no errors.
+  field(...)                         a required input for the login and register pages
+  error_message(prefix, name)        the error under a field, id "<prefix>-<name>-error"
+  error_attributes(prefix, name, help_id)  aria-invalid / aria-describedby for a field
+#}
+{% macro field(id, label, type, autocomplete, value="", extra="") %}
+{% set errors = errors|default({}, true) %}
+<div class="auth-field">
+    <label for="{{ id }}">{{ label }}</label>
+    <input id="{{ id }}" name="{{ id }}" type="{{ type }}" autocomplete="{{ autocomplete }}" value="{{ value }}"
+        required {{ extra | safe }} {% if errors.get(id) %}aria-invalid="true" aria-describedby="{{ id }}-error" {%
+        endif %}>
+    {% if errors.get(id) %}
+    <p id="{{ id }}-error" class="auth-error">{{ errors[id] }}</p>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{% macro error_message(prefix, name) -%}
+{% set errors = errors|default({}, true) %}
+{% if errors.get(name) %}
+<p id="{{ prefix }}-{{ name }}-error" class="auth-error">{{ errors[name] }}</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro error_attributes(prefix, name, help_id='') -%}
+{% set errors = errors|default({}, true) %}
+{% if errors.get(name) %}aria-invalid="true"{% endif %}
+{% if errors.get(name) or help_id %}aria-describedby="{{ help_id }}{% if help_id and errors.get(name) %} {% endif %}{% if errors.get(name) %}{{ prefix }}-{{ name }}-error{% endif %}"{% endif %}
+{%- endmacro %}

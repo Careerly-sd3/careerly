@@ -1,5 +1,5 @@
 """Mocked listing requests; SQL ordering is asserted, not executed on MySQL."""
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from html.parser import HTMLParser
 import unittest
 from unittest.mock import patch
@@ -39,10 +39,9 @@ class InterviewListingTests(unittest.TestCase):
 
     def test_order_cutoff_single_query_and_rendering(self):
         self.seed()
-        with patch('tracker_data.datetime') as clock, patch('tracker_data.list_interviews', wraps=service.list_interviews) as listing:
-            clock.now.return_value = self.cutoff.replace(tzinfo=timezone.utc)
+        with patch('tracker_data._now_utc', return_value=self.cutoff) as clock, patch('tracker_data.list_interviews', wraps=service.list_interviews) as listing:
             response = self.client.get('/interviews')
-            clock.now.assert_called_once_with(timezone.utc)
+            clock.assert_called_once_with()
             listing.assert_called_once_with(101, cutoff=self.cutoff)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(InterviewRows(response.get_data(as_text=True)).ids, [3, 2, 4, 8, 9, 7])

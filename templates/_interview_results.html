@@ -1,0 +1,39 @@
+{#
+"How did it go?" popup, shown in the bottom-right corner of the Tracker and the Dashboard.
+  items: past interviews whose outcome is still Pending (interview_id, company, job_title,
+         scheduled_at in Dublin time).
+Each line is its own small form: Offer, Rejected or Withdrawn sets the application's status
+(Offer also saves the interview as Passed, Rejected as Failed), then the user comes back to this page. × hides the popup until the next page load.
+Import it "with context" so csrf_token() and request are available.
+#}
+{% macro awaiting_results_banner(items) -%}
+{% if items %}
+<aside class="interview-result-popup card" role="status" aria-labelledby="interview-result-title" data-bs-theme="light">
+    <div class="card-body d-flex flex-column gap-3">
+        <div class="d-flex align-items-center justify-content-between gap-2">
+            <h2 id="interview-result-title" class="fs-md fw-bold mb-0">
+                <i class="bi bi-bell-fill" aria-hidden="true"></i> How did it go?
+            </h2>
+            <button type="button" class="btn btn-subtle btn-icon btn-sm theme-secondary" aria-label="Close"
+                onclick="this.closest('.interview-result-popup').remove()">
+                <i class="bi bi-x-lg" aria-hidden="true"></i>
+            </button>
+        </div>
+        {% for item in items %}
+        <form method="post" action="{{ url_for('record_interview_result', interview_id=item.interview_id) }}"
+            class="d-flex flex-column gap-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}">
+            <p class="mb-0">Your <strong>{{ item.company }}</strong> interview ({{ item.job_title }})
+                was on {{ item.scheduled_at.strftime('%b %d') }}.</p>
+            <div class="d-flex gap-2">
+                <button type="submit" name="status" value="Offer" class="btn btn-subtle btn-sm theme-success">Offer</button>
+                <button type="submit" name="status" value="Rejected" class="btn btn-subtle btn-sm theme-danger">Rejected</button>
+                <button type="submit" name="status" value="Withdrawn" class="btn btn-subtle btn-sm theme-secondary">Withdrawn</button>
+            </div>
+        </form>
+        {% endfor %}
+    </div>
+</aside>
+{% endif %}
+{%- endmacro %}

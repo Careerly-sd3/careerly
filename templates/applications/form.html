@@ -1,11 +1,12 @@
 {% extends "template.html" %}
+{% from "_forms.html" import error_message, error_attributes with context %}
 {#
 CAR-55 shared create and edit form for a job application (CAR-54).
 Context for routes:
   mode: create (default) or edit
   application: edit only; trusted, owner-scoped company/job_title display context
   form: strings keyed by company, job_title, opportunity_type, work_type, status,
-        location, job_url, closing_date, applied_at, follow_up_date, salary_text, job_ad_text
+        location, job_url, closing_date, applied_at, salary_text, job_ad_text
         (dates as YYYY-MM-DD); POST values take precedence over prefill
   errors: field -> message, optionally _form for a failed save
   statuses / opportunity_types / work_types: the allowed values, from application_service
@@ -30,17 +31,6 @@ Save stays disabled until a trusted action URL and token are supplied.
 <link rel="stylesheet" href="{{ url_for('static', filename='css/ai.css') }}">
 {% endblock %}
 
-{% macro error_message(name) -%}
-{% if errors.get(name) %}
-<p id="application-{{ name }}-error" class="auth-error">{{ errors[name] }}</p>
-{% endif %}
-{%- endmacro %}
-
-{% macro error_attributes(name, help_id='') -%}
-{% if errors.get(name) %}aria-invalid="true"{% endif %}
-{% if errors.get(name) or help_id %}aria-describedby="{{ help_id }}{% if help_id and errors.get(name) %} {% endif %}{% if errors.get(name) %}application-{{ name }}-error{% endif %}"{% endif %}
-{%- endmacro %}
-
 {% macro suggested_tag(name) -%}
 {% if name in suggested %}<span class="ai-suggested"><i class="bi bi-stars" aria-hidden="true"></i> AI suggestion</span>{% endif %}
 {%- endmacro %}
@@ -50,8 +40,8 @@ Save stays disabled until a trusted action URL and token are supplied.
     <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span> {{ suggested_tag(name) }}</label>
     <input id="application-{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ form.get(name) or '' }}"
         {% if maxlength %}maxlength="{{ maxlength }}"{% endif %}{% if placeholder %} placeholder="{{ placeholder }}"{% endif %}{% if required %} required{% endif %}
-        {{ error_attributes(name, help_id) }}>
-    {{ error_message(name) }}
+        {{ error_attributes('application', name, help_id) }}>
+    {{ error_message('application', name) }}
 </div>
 {%- endmacro %}
 
@@ -59,7 +49,7 @@ Save stays disabled until a trusted action URL and token are supplied.
 {% macro select_field(name, label, values, selected, required=False, empty_label='') -%}
 <div class="auth-field">
     <label for="application-{{ name }}">{{ label }} <span class="fs-sm">({{ 'required' if required else 'optional' }})</span> {{ suggested_tag(name) }}</label>
-    <select id="application-{{ name }}" name="{{ name }}"{% if required %} required{% endif %} {{ error_attributes(name) }}>
+    <select id="application-{{ name }}" name="{{ name }}"{% if required %} required{% endif %} {{ error_attributes('application', name) }}>
         {% if selected and selected not in values %}
         <option value="{{ selected }}" selected disabled>Unsupported selection: {{ selected }}</option>
         {% elif required and not selected %}
@@ -71,7 +61,7 @@ Save stays disabled until a trusted action URL and token are supplied.
         <option value="{{ value }}"{% if selected == value %} selected{% endif %}>{{ value|capitalize }}</option>
         {% endfor %}
     </select>
-    {{ error_message(name) }}
+    {{ error_message('application', name) }}
 </div>
 {%- endmacro %}
 
@@ -116,7 +106,7 @@ Save stays disabled until a trusted action URL and token are supplied.
     {% if errors and not (errors|length == 1 and '_form' in errors) %}
     <div class="alert theme-danger" role="alert">Please correct the highlighted fields.</div>
     {% endif %}
-    {{ error_message('_form') }}
+    {{ error_message('application', '_form') }}
 
     <form id="application-form" method="post"{% if target %} action="{{ target }}"{% endif %} class="d-flex flex-column gap-5">
         {% if token %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endif %}
@@ -131,13 +121,12 @@ Save stays disabled until a trusted action URL and token are supplied.
         {{ text_field('closing_date', 'Closing date', type='date') }}
         {{ text_field('applied_at', 'Applied date', type='date', help_id='application-applied_at-help') }}
         <p id="application-applied_at-help" class="fs-sm">Leave the applied date empty while the status is Saved.</p>
-        {{ text_field('follow_up_date', 'Follow-up date', type='date') }}
         {{ text_field('salary_text', 'Salary', maxlength=100, placeholder='e.g. 35,000 - 40,000, or competitive') }}
 
         <div class="auth-field">
             <label for="application-job_ad_text">Job advert <span class="fs-sm">(optional; needed for AI insights)</span></label>
-            <textarea id="application-job_ad_text" name="job_ad_text" rows="8" {{ error_attributes('job_ad_text') }}>{{ form.get('job_ad_text') or '' }}</textarea>
-            {{ error_message('job_ad_text') }}
+            <textarea id="application-job_ad_text" name="job_ad_text" rows="8" {{ error_attributes('application', 'job_ad_text') }}>{{ form.get('job_ad_text') or '' }}</textarea>
+            {{ error_message('application', 'job_ad_text') }}
         </div>
 
         <div class="d-flex flex-wrap gap-3 align-items-center">

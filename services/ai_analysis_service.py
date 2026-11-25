@@ -5,7 +5,7 @@
 - result_text is the result as JSON, including a fingerprint of the inputs it was
   made from, so the page can tell when a result is out of date.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 import json
 import logging
@@ -15,12 +15,12 @@ from sqlalchemy import select
 from models import AIAnalysis, JobApplication
 from orm_db import operation_session
 from services.application_service import ApplicationNotFound
+from services.common import is_valid_id, now_utc
 
 logger = logging.getLogger(__name__)
 
 ANALYSIS_TYPES = ("interview_prep", "missing_skills", "cv_match")
 RESULT_MAX_BYTES = 65535  # MySQL TEXT
-MAX_ID = 2147483647
 REQUIRED_WEIGHT = 2
 NICE_WEIGHT = 1
 
@@ -71,7 +71,7 @@ def _serialise(analysis_type, result, match_score):
 def _check_owned(session, user_id, application_id, *, lock=False):
     """Raise ApplicationNotFound unless the user owns the application."""
     for value in (user_id, application_id):
-        if type(value) is not int or not 1 <= value <= MAX_ID:
+        if not is_valid_id(value):
             raise ApplicationNotFound()
     query = select(JobApplication.application_id).where(
         JobApplication.application_id == application_id, JobApplication.user_id == user_id)
@@ -83,7 +83,7 @@ def save_analyses(user_id, application_id, entries, *, now=None):
     """Insert one row per entry ({"analysis_type", "result", "match_score"}) in one transaction."""
     rows = [(entry["analysis_type"], _serialise(entry["analysis_type"], entry["result"], entry.get("match_score")),
              entry.get("match_score")) for entry in entries]
-    stamp = now or datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    stamp = now or now_utc()
     with operation_session(error_message="Could not save the AI result. Please try again.") as session:
         _check_owned(session, user_id, application_id, lock=True)
         for analysis_type, text, score in rows:

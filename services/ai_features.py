@@ -4,7 +4,7 @@ Gemini is never called inside a database transaction: inputs are read first,
 then Gemini is called, then the result is saved in a new transaction.
 """
 from collections import defaultdict, deque
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 import threading
 import time
 from urllib.parse import urlsplit
@@ -13,6 +13,7 @@ from db import DatabaseError
 from services import (ai_analysis_service, ai_jobs, ai_service, application_service, interview_service,
                       profile_service)
 from services.interview_time import utc_to_dublin
+from services.common import now_utc as _now_utc
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 JOB_AD_MAX_BYTES = 65535  # MySQL TEXT
@@ -56,10 +57,6 @@ class RateLimited(Exception):
 
 # Failures a background job shows to the user; anything else is logged as unexpected.
 BACKGROUND_ERRORS = (ai_service.AIServiceError, MissingInputs, RateLimited, DatabaseError)
-
-
-def _now_utc():
-    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
 
 
 # ---------- rate limit ----------

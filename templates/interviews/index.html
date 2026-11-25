@@ -3,7 +3,7 @@
 {% block css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/tracker.css') }}">
 {% endblock %}
-{% macro date_text(value) %}{{ value.strftime('%b %d, %Y') }}{% endmacro %}
+{% from "tracker/_details.html" import date_text %}
 {% block main %}
 <section class="tracker interviews-page d-flex flex-column gap-6">
     <section id="interviews" aria-labelledby="interviews-heading">

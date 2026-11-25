@@ -3,17 +3,17 @@
 - A skill name is unique per user, ignoring case and accents, as in the database.
 - A new CV replaces only the skills found in the old CV; skills the user added stay.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 import unicodedata
 
 from sqlalchemy import delete, select, update
 
 from models import User, UserSkill
 from orm_db import operation_session
+from services.common import is_valid_id, now_utc as _now_utc
 
 SKILL_MAX_CHARS = 100
 CV_TEXT_MAX_BYTES = 65535  # MySQL TEXT
-MAX_ID = 2147483647
 
 
 class ProfileValidationError(ValueError):
@@ -30,12 +30,8 @@ class ProfileNotFound(LookupError):
     pass
 
 
-def _now_utc():
-    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
-
-
 def _check_id(value, error):
-    if type(value) is not int or not 1 <= value <= MAX_ID:
+    if not is_valid_id(value):
         raise error()
 
 

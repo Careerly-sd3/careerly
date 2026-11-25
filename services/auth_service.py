@@ -4,7 +4,7 @@ Reads roll back and close before subsequent writes. All operations refuse active
 legacy/ORM caller work without touching it. Routes receive the detached User
 adapter, never a mapped entity. No environment loading or schema creation.
 """
-from datetime import datetime, timezone
+from datetime import datetime
 import re
 
 from flask_login import UserMixin, current_user
@@ -14,6 +14,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from db import DatabaseError
 from models import User as UserRecord
 from orm_db import operation_session, ORMDatabaseError
+from services.common import is_valid_id, MAX_ID, now_utc
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MIN_PASSWORD_LENGTH = 8
@@ -51,10 +52,10 @@ class User(UserMixin):
 
 def _persisted_id(value):
     if type(value) is int:
-        return value if 1 <= value <= 2147483647 else None
+        return value if is_valid_id(value) else None
     if isinstance(value, str) and re.fullmatch(r"[1-9][0-9]{0,9}", value):
         identity = int(value)
-        return identity if identity <= 2147483647 else None
+        return identity if identity <= MAX_ID else None
     return None
 
 
@@ -146,7 +147,7 @@ def create_user(form):
     name = (form.get("name") or "").strip()
     email = normalise_email(form.get("email"))
     password_hash = generate_password_hash(form.get("password"))
-    created_at = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    created_at = now_utc()
     try:
         with operation_session(
             error_message="Could not register the account; check the outcome before retrying.",
